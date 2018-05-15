@@ -603,6 +603,20 @@ memtx_space_ephemeral_delete(struct space *space, const char *key)
 	return 0;
 }
 
+/**
+ * Generate unique number.
+ * This rowid may be used to store non-unique values in an
+ * ephemeral space.
+ *
+ * This function isn't involved in any transaction routine.
+ */
+static uint64_t
+memtx_space_ephemeral_next_rowid(struct space *space)
+{
+	struct memtx_space *memtx_space = (struct memtx_space *)space;
+	return memtx_space->next_rowid++;
+}
+
 /* }}} DML */
 
 /* {{{ DDL */
@@ -843,6 +857,8 @@ static void
 memtx_init_ephemeral_space(struct space *space)
 {
 	memtx_space_add_primary_key(space);
+	struct memtx_space * ephem_space = (struct memtx_space *) space;
+	ephem_space->next_rowid = 0;
 }
 
 static int
@@ -949,6 +965,7 @@ static const struct space_vtab memtx_space_vtab = {
 	/* .execute_upsert = */ memtx_space_execute_upsert,
 	/* .ephemeral_replace = */ memtx_space_ephemeral_replace,
 	/* .ephemeral_delete = */ memtx_space_ephemeral_delete,
+	/* .ephemeral_next_rowid = */ memtx_space_ephemeral_next_rowid,
 	/* .ephemeral_cleanup = */ memtx_space_ephemeral_cleanup,
 	/* .init_system_space = */ memtx_init_system_space,
 	/* .init_ephemeral_space = */ memtx_init_ephemeral_space,

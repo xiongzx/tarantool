@@ -116,8 +116,14 @@ int tarantoolSqlite3EphemeralDelete(BtCursor * pCur);
 int tarantoolSqlite3EphemeralCount(BtCursor * pCur, i64 * pnEntry);
 int tarantoolSqlite3EphemeralDrop(BtCursor * pCur);
 int tarantoolSqlite3EphemeralClearTable(BtCursor * pCur);
-int tarantoolSqlite3EphemeralGetMaxId(BtCursor * pCur, uint32_t fieldno,
-				       uint64_t * max_id);
+/**
+ * Get next rowid for a cursor which points to an ephemeral table.
+ * @param bt_cur Cursor which will point to the new ephemeral space.
+ *
+ * @retval New unique rowid.
+ */
+uint64_t
+ephemeral_next_rowid(struct BtCursor *bt_cur);
 
 /**
  * Performs exactly as extract_key + sqlite3VdbeCompareMsgpack,

@@ -48,6 +48,11 @@ struct memtx_space {
 	 */
 	int (*replace)(struct space *, struct tuple *, struct tuple *,
 		       enum dup_replace_mode, struct tuple **);
+	/**
+	 * Next rowid. This number is used to allow to store
+	 * non-unique rows in ephemeral tables.
+	 */
+	uint64_t next_rowid;
 };
 
 /**

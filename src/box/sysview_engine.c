@@ -119,6 +119,14 @@ sysview_space_ephemeral_delete(struct space *space, const char *key)
 	return -1;
 }
 
+static uint64_t
+sysview_space_ephemeral_next_rowid(struct space *space)
+{
+	(void)space;
+	unreachable();
+	return 0;
+}
+
 static void
 sysview_space_ephemeral_cleanup(struct space *space)
 {
@@ -206,6 +214,7 @@ static const struct space_vtab sysview_space_vtab = {
 	/* .execute_upsert = */ sysview_space_execute_upsert,
 	/* .ephemeral_replace = */ sysview_space_ephemeral_replace,
 	/* .ephemeral_delete = */ sysview_space_ephemeral_delete,
+	/* .ephemeral_next_rowid = */  sysview_space_ephemeral_next_rowid,
 	/* .ephemeral_cleanup = */ sysview_space_ephemeral_cleanup,
 	/* .init_system_space = */ sysview_init_system_space,
 	/* .init_ephemeral_space = */ sysview_init_ephemeral_space,

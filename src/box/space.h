@@ -70,6 +70,10 @@ struct space_vtab {
 	int (*ephemeral_replace)(struct space *, const char *, const char *);
 
 	int (*ephemeral_delete)(struct space *, const char *);
+	/**
+	 * Generate unique number.
+	 */
+	uint64_t (*ephemeral_next_rowid)(struct space *);
 
 	void (*ephemeral_cleanup)(struct space *);
 
