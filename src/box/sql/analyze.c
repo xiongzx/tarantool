@@ -124,28 +124,29 @@
  * @param parse Parsing context.
  * @param stat_cursor Open the _sql_stat1 table on this cursor.
  *        you should allocate |stat_names| cursors before call.
- * @param table_name Delete records of this index if specified.
+ * @param space_id Delete records of this table if id is not
+ *        BOX_ID_NIL.
  */
 static void
 vdbe_emit_stat_space_open(struct Parse *parse, int stat_cursor,
-			  const char *table_name)
+			  uint32_t space_id)
 {
-	const char *stat_names[] = {"_sql_stat1", "_sql_stat4"};
+	const char *stat_names[] = {TARANTOOL_SYS_SQL_STAT1_NAME,
+				    TARANTOOL_SYS_SQL_STAT4_NAME};
 	const uint32_t stat_ids[] = {BOX_SQL_STAT1_ID, BOX_SQL_STAT4_ID};
 	struct Vdbe *v = sqlite3GetVdbe(parse);
 	assert(v != NULL);
 	assert(sqlite3VdbeDb(v) == parse->db);
 	for (uint i = 0; i < lengthof(stat_names); ++i) {
-		const char *space_name = stat_names[i];
 		/*
 		 * The table already exists, because it is a
 		 * system space.
 		 */
 		assert(sqlite3HashFind(&parse->db->pSchema->tblHash,
-				       space_name) != NULL);
-		if (table_name != NULL) {
-			vdbe_emit_stat_space_clear(parse, space_name, NULL,
-						   table_name);
+				       stat_names[i]) != NULL);
+		if (space_id != BOX_ID_NIL) {
+			sql_remove_from_stat(parse, stat_names[i], space_id,
+					     BOX_ID_NIL);
 		} else {
 			sqlite3VdbeAddOp1(v, OP_Clear, stat_ids[i]);
 		}
@@ -793,8 +794,8 @@ analyzeOneTable(Parse * pParse,	/* Parser context */
 	int regChng = iMem++;	/* Index of changed index field */
 	int regKey = iMem++;	/* Key argument passed to stat_push() */
 	int regTemp = iMem++;	/* Temporary use register */
-	int regTabname = iMem++;	/* Register containing table name */
-	int regIdxname = iMem++;	/* Register containing index name */
+	int reg_space_id = iMem++;	/* Register containing table id */
+	int reg_index_id = iMem++;	/* Register containing index id */
 	int regStat1 = iMem++;	/* Value for the stat column of _sql_stat1 */
 	int regPrev = iMem;	/* MUST BE LAST (see below) */
 
@@ -818,7 +819,7 @@ analyzeOneTable(Parse * pParse,	/* Parser context */
 	iIdxCur = iTab++;
 	pParse->nTab = MAX(pParse->nTab, iTab);
 	sqlite3OpenTable(pParse, iTabCur, pTab, OP_OpenRead);
-	sqlite3VdbeLoadString(v, regTabname, pTab->def->name);
+	sqlite3VdbeAddOp2(v, OP_Integer, pTab->def->id, reg_space_id);
 
 	for (pIdx = pTab->pIndex; pIdx; pIdx = pIdx->pNext) {
 		int addrRewind;	/* Address of "OP_Rewind iIdxCur" */
@@ -837,8 +838,8 @@ analyzeOneTable(Parse * pParse,	/* Parser context */
 			idx_name = pIdx->def->name;
 		int part_count = pIdx->def->key_def->part_count;
 
-		/* Populate the register containing the index name. */
-		sqlite3VdbeLoadString(v, regIdxname, idx_name);
+		/* Populate the register containing the index id. */
+		sqlite3VdbeAddOp2(v, OP_Integer, pIdx->def->iid, reg_index_id);
 		VdbeComment((v, "Analysis for %s.%s", pTab->def->name,
 			    idx_name));
 
@@ -1015,9 +1016,8 @@ analyzeOneTable(Parse * pParse,	/* Parser context */
 
 		/* Add the entry to the stat1 table. */
 		callStatGet(v, regStat4, STAT_GET_STAT1, regStat1);
-		assert("BBB"[0] == AFFINITY_TEXT);
-		sqlite3VdbeAddOp4(v, OP_MakeRecord, regTabname, 3, regTemp,
-				  "BBB", 0);
+		sqlite3VdbeAddOp4(v, OP_MakeRecord, reg_space_id, 3, regTemp,
+				  "DDB", 0);
 		sqlite3VdbeAddOp2(v, OP_IdxInsert, iStatCur, regTemp);
 
 		/* Add the entries to the stat4 table. */
@@ -1053,7 +1053,7 @@ analyzeOneTable(Parse * pParse,	/* Parser context */
 		}
 		sqlite3VdbeAddOp3(v, OP_MakeRecord, regCol, part_count,
 				  regSample);
-		sqlite3VdbeAddOp3(v, OP_MakeRecord, regTabname, 6, regTemp);
+		sqlite3VdbeAddOp3(v, OP_MakeRecord, reg_space_id, 6, regTemp);
 		sqlite3VdbeAddOp2(v, OP_IdxReplace, iStatCur + 1, regTemp);
 		sqlite3VdbeAddOp2(v, OP_Goto, 1, addrNext);	/* P1==1 for end-of-loop */
 		sqlite3VdbeJumpHere(v, addrIsNull);
@@ -1086,7 +1086,7 @@ sql_analyze_database(Parse *parser)
 	sql_set_multi_write(parser, false);
 	int stat_cursor = parser->nTab;
 	parser->nTab += 3;
-	vdbe_emit_stat_space_open(parser, stat_cursor, NULL);
+	vdbe_emit_stat_space_open(parser, stat_cursor, BOX_ID_NIL);
 	int reg = parser->nMem + 1;
 	int tab_cursor = parser->nTab;
 	for (struct HashElem *k = sqliteHashFirst(&schema->tblHash); k != NULL;
@@ -1114,7 +1114,7 @@ vdbe_emit_analyze_table(struct Parse *parse, struct Table *table)
 	sql_set_multi_write(parse, false);
 	int stat_cursor = parse->nTab;
 	parse->nTab += 3;
-	vdbe_emit_stat_space_open(parse, stat_cursor, table->def->name);
+	vdbe_emit_stat_space_open(parse, stat_cursor, table->def->id);
 	analyzeOneTable(parse, table, NULL, stat_cursor, parse->nMem + 1,
 			parse->nTab);
 	loadAnalysis(parse);
@@ -1246,24 +1246,14 @@ analysis_loader(void *data, int argc, char **argv, char **unused)
 	struct analysis_index_info *info = (struct analysis_index_info *) data;
 	assert(info->stats != NULL);
 	struct index_stat *stat = &info->stats[info->index_count++];
-	uint32_t space_id = box_space_id_by_name(argv[0], strlen(argv[0]));
+	uint32_t space_id = atoll(argv[0]);
 	if (space_id == BOX_ID_NIL)
 		return -1;
 	struct space *space = space_by_id(space_id);
 	assert(space != NULL);
 	struct index *index;
-	uint32_t iid = box_index_id_by_name(space_id, argv[1], strlen(argv[1]));
-	/*
-	 * Convention is if index's name matches with space's
-	 * one, then it is primary index.
-	 */
-	if (iid != BOX_ID_NIL) {
-		index = space_index(space, iid);
-	} else {
-		if (sqlite3_stricmp(argv[0], argv[1]) != 0)
-			return -1;
-		index = space_index(space, 0);
-	}
+	uint32_t iid = atoll(argv[1]);
+	index = space_index(space, iid);
 	assert(index != NULL);
 	/*
 	 * Additional field is used to describe total
@@ -1410,27 +1400,17 @@ load_stat_from_space(struct sqlite3 *db, const char *sql_select_prepare,
 		goto finalize;
 	uint32_t current_idx_count = 0;
 	while (sqlite3_step(stmt) == SQLITE_ROW) {
-		const char *space_name = (char *)sqlite3_column_text(stmt, 0);
-		if (space_name == NULL)
+		if (sqlite3_column_text(stmt, 0) == NULL ||
+		    sqlite3_column_text(stmt, 1) == NULL)
 			continue;
-		const char *index_name = (char *)sqlite3_column_text(stmt, 1);
-		if (index_name == NULL)
-			continue;
-		uint32_t sample_count = sqlite3_column_int(stmt, 2);
-		uint32_t space_id = box_space_id_by_name(space_name,
-							 strlen(space_name));
+		uint32_t space_id = sqlite3_column_int(stmt, 0);
 		assert(space_id != BOX_ID_NIL);
 		struct space *space = space_by_id(space_id);
 		assert(space != NULL);
-		struct index *index;
-		uint32_t iid = box_index_id_by_name(space_id, index_name,
-						    strlen(index_name));
-		if (sqlite3_stricmp(space_name, index_name) == 0 &&
-		    iid == BOX_ID_NIL)
-			index = space_index(space, 0);
-		else
-			index = space_index(space, iid);
+		uint32_t iid = sqlite3_column_int(stmt, 1);
+		struct index *index = space_index(space, iid);
 		assert(index != NULL);
+		uint32_t sample_count = sqlite3_column_int(stmt, 2);
 		uint32_t column_count = index->def->key_def->part_count;
 		struct index_stat *stat = &stats[current_idx_count];
 		stat->sample_field_count = column_count;
@@ -1482,27 +1462,15 @@ load_stat_from_space(struct sqlite3 *db, const char *sql_select_prepare,
 	struct index *prev_index = NULL;
 	current_idx_count = 0;
 	while (sqlite3_step(stmt) == SQLITE_ROW) {
-		const char *space_name = (char *)sqlite3_column_text(stmt, 0);
-		if (space_name == NULL)
+		if (sqlite3_column_text(stmt, 0) == NULL ||
+		    sqlite3_column_text(stmt, 1) == NULL)
 			continue;
-		const char *index_name = (char *)sqlite3_column_text(stmt, 1);
-		if (index_name == NULL)
-			continue;
-		uint32_t space_id = box_space_id_by_name(space_name,
-							 strlen(space_name));
+		uint32_t space_id = sqlite3_column_int(stmt, 0);
 		assert(space_id != BOX_ID_NIL);
 		struct space *space = space_by_id(space_id);
 		assert(space != NULL);
-		struct index *index;
-		uint32_t iid = box_index_id_by_name(space_id, index_name,
-						    strlen(index_name));
-		if (iid != BOX_ID_NIL) {
-			index = space_index(space, iid);
-		} else {
-			if (sqlite3_stricmp(space_name, index_name) != 0)
-				return -1;
-			index = space_index(space, 0);
-		}
+		uint32_t iid = sqlite3_column_int(stmt, 1);
+		struct index *index = space_index(space, iid);
 		assert(index != NULL);
 		uint32_t column_count = index->def->key_def->part_count;
 		if (index != prev_index) {
@@ -1566,28 +1534,16 @@ load_stat_to_index(struct sqlite3 *db, const char *sql_select_load,
 		return -1;
 	uint32_t current_idx_count = 0;
 	while (sqlite3_step(stmt) == SQLITE_ROW) {
-		const char *space_name = (char *)sqlite3_column_text(stmt, 0);
-		if (space_name == NULL)
+		if (sqlite3_column_text(stmt, 0) == NULL ||
+		    sqlite3_column_text(stmt, 1) == NULL)
 			continue;
-		const char *index_name = (char *)sqlite3_column_text(stmt, 1);
-		if (index_name == NULL)
-			continue;
-		uint32_t space_id = box_space_id_by_name(space_name,
-							 strlen(space_name));
+		uint32_t space_id = sqlite3_column_int(stmt, 0);
 		if (space_id == BOX_ID_NIL)
 			return -1;
 		struct space *space = space_by_id(space_id);
 		assert(space != NULL);
-		struct index *index;
-		uint32_t iid = box_index_id_by_name(space_id, index_name,
-						    strlen(index_name));
-		if (iid != BOX_ID_NIL) {
-			index = space_index(space, iid);
-		} else {
-			if (sqlite3_stricmp(space_name, index_name) != 0)
-				return -1;
-			index = space_index(space, 0);
-		}
+		uint32_t iid = sqlite3_column_int(stmt, 1);
+		struct index *index = space_index(space, iid);
 		assert(index != NULL);
 		free(index->def->opts.stat);
 		index->def->opts.stat = stats[current_idx_count++];

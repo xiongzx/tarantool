@@ -384,11 +384,11 @@ schema_init()
 
 	/* space name */
 	key_def_set_part(key_def, 0 /* part no */, 0 /* field no */,
-			 FIELD_TYPE_STRING, ON_CONFLICT_ACTION_DEFAULT, NULL,
+			 FIELD_TYPE_UNSIGNED, ON_CONFLICT_ACTION_DEFAULT, NULL,
 			 COLL_NONE, SORT_ORDER_ASC);
 	/* index name */
 	key_def_set_part(key_def, 1 /* part no */, 1 /* field no */,
-			 FIELD_TYPE_STRING, ON_CONFLICT_ACTION_DEFAULT, NULL,
+			 FIELD_TYPE_UNSIGNED, ON_CONFLICT_ACTION_DEFAULT, NULL,
 			 COLL_NONE, SORT_ORDER_ASC);
 	/* _sql_stat1 - a simpler statistics on space, seen in SQL. */
 	sc_space_new(BOX_SQL_STAT1_ID, "_sql_stat1", key_def, NULL, NULL);
@@ -400,11 +400,11 @@ schema_init()
 
 	/* space name */
 	key_def_set_part(key_def, 0 /* part no */, 0 /* field no */,
-			 FIELD_TYPE_STRING, ON_CONFLICT_ACTION_DEFAULT, NULL,
+			 FIELD_TYPE_UNSIGNED, ON_CONFLICT_ACTION_DEFAULT, NULL,
 			 COLL_NONE, SORT_ORDER_ASC);
 	/* index name */
 	key_def_set_part(key_def, 1 /* part no */, 1 /* field no */,
-			 FIELD_TYPE_STRING, ON_CONFLICT_ACTION_DEFAULT, NULL,
+			 FIELD_TYPE_UNSIGNED, ON_CONFLICT_ACTION_DEFAULT, NULL,
 			 COLL_NONE, SORT_ORDER_ASC);
 	/* sample */
 	key_def_set_part(key_def, 2 /* part no */, 5 /* field no */,

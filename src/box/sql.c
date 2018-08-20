@@ -1148,16 +1148,16 @@ void tarantoolSqlite3LoadSchema(struct init_data *init)
 	sql_init_callback(init, TARANTOOL_SYS_SQL_STAT1_NAME,
 			  BOX_SQL_STAT1_ID, 0,
 			  "CREATE TABLE \""TARANTOOL_SYS_SQL_STAT1_NAME
-			       "\"(\"tbl\" text,"
-			       "\"idx\" text,"
+			       "\"(\"tbl\" INT,"
+			       "\"idx\" INT,"
 			       "\"stat\" not null,"
 			       "PRIMARY KEY(\"tbl\", \"idx\"))");
 
 	sql_init_callback(init, TARANTOOL_SYS_SQL_STAT4_NAME,
 			  BOX_SQL_STAT4_ID, 0,
 			  "CREATE TABLE \""TARANTOOL_SYS_SQL_STAT4_NAME
-			       "\"(\"tbl\" text,"
-			       "\"idx\" text,"
+			       "\"(\"tbl\" INT,"
+			       "\"idx\" INT,"
 			       "\"neq\" text,"
 			       "\"nlt\" text,"
 			       "\"ndlt\" text,"
