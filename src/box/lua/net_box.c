@@ -680,7 +680,7 @@ netbox_decode_sql_info(struct lua_State *L, const char **data)
 	lua_setfield(L, -2, "rowcount");
 }
 
-static int
+int
 netbox_decode_execute(struct lua_State *L)
 {
 	uint32_t ctypeid;

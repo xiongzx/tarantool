@@ -9,6 +9,7 @@ engine = test_run:get_cfg('engine')
 ...
 box.sql.execute('pragma sql_default_engine=\''..engine..'\'')
 ---
+- rowcount: 1
 ...
 -- gh-3010: COLLATE after LIMIT should throw an error
 -- All of these tests should throw error "near "COLLATE": syntax error"
@@ -36,26 +37,36 @@ box.sql.execute("SELECT 1 LIMIT 1 COLLATE BINARY, 1;")
 -- For tr-TR result depends on collation
 box.sql.execute([[CREATE TABLE tu (descriptor CHAR(50) PRIMARY KEY, letter CHAR)]]);
 ---
+- rowcount: 1
 ...
 box.internal.collation.create('TURKISH', 'ICU', 'tr-TR', {strength='primary'});
 ---
 ...
 box.sql.execute([[INSERT INTO tu VALUES ('Latin Capital Letter I U+0049','I');]])
 ---
+- rowcount: 1
 ...
 box.sql.execute([[INSERT INTO tu VALUES ('Latin Small Letter I U+0069','i');]])
 ---
+- rowcount: 1
 ...
 box.sql.execute([[INSERT INTO tu VALUES ('Latin Capital Letter I With Dot Above U+0130','İ');]])
 ---
+- rowcount: 1
 ...
 box.sql.execute([[INSERT INTO tu VALUES ('Latin Small Letter Dotless I U+0131','ı');]])
 ---
+- rowcount: 1
 ...
 -- Without collation
 box.sql.execute([[SELECT descriptor, upper(letter) AS upper,lower(letter) AS lower FROM tu;]])
 ---
-- - ['Latin Capital Letter I U+0049', 'I', 'i']
+- metadata:
+  - name: DESCRIPTOR
+  - name: UPPER
+  - name: LOWER
+  rows:
+  - ['Latin Capital Letter I U+0049', 'I', 'i']
   - ['Latin Capital Letter I With Dot Above U+0130', 'İ', 'i̇']
   - ['Latin Small Letter Dotless I U+0131', 'I', 'ı']
   - ['Latin Small Letter I U+0069', 'I', 'i']
@@ -63,7 +74,12 @@ box.sql.execute([[SELECT descriptor, upper(letter) AS upper,lower(letter) AS low
 -- With collation
 box.sql.execute([[SELECT descriptor, upper(letter COLLATE "TURKISH") AS upper,lower(letter COLLATE "TURKISH") AS lower FROM tu;]])
 ---
-- - ['Latin Capital Letter I U+0049', 'I', 'ı']
+- metadata:
+  - name: DESCRIPTOR
+  - name: UPPER
+  - name: LOWER
+  rows:
+  - ['Latin Capital Letter I U+0049', 'I', 'ı']
   - ['Latin Capital Letter I With Dot Above U+0130', 'İ', 'i']
   - ['Latin Small Letter Dotless I U+0131', 'I', 'ı']
   - ['Latin Small Letter I U+0069', 'İ', 'i']
@@ -77,22 +93,34 @@ box.internal.collation.create('GERMAN', 'ICU', 'de-DE', {strength='primary'});
 ...
 box.sql.execute([[INSERT INTO tu VALUES ('German Small Letter Sharp S U+00DF','ß');]])
 ---
+- rowcount: 1
 ...
 -- Without collation
 box.sql.execute([[SELECT descriptor, upper(letter), letter FROM tu where UPPER(letter) = 'SS';]])
 ---
-- - ['German Small Letter Sharp S U+00DF', 'SS', 'ß']
+- metadata:
+  - name: DESCRIPTOR
+  - name: upper(letter)
+  - name: LETTER
+  rows:
+  - ['German Small Letter Sharp S U+00DF', 'SS', 'ß']
 ...
 -- With collation
 box.sql.execute([[SELECT descriptor, upper(letter COLLATE "GERMAN"), letter FROM tu where UPPER(letter COLLATE "GERMAN") = 'SS';]])
 ---
-- - ['German Small Letter Sharp S U+00DF', 'SS', 'ß']
+- metadata:
+  - name: DESCRIPTOR
+  - name: upper(letter COLLATE "GERMAN")
+  - name: LETTER
+  rows:
+  - ['German Small Letter Sharp S U+00DF', 'SS', 'ß']
 ...
 box.internal.collation.drop('GERMAN')
 ---
 ...
 box.sql.execute(([[DROP TABLE tu]]))
 ---
+- rowcount: 1
 ...
 box.schema.user.grant('guest','read,write,execute', 'universe')
 ---

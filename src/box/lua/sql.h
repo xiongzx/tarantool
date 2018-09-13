@@ -39,6 +39,9 @@ struct lua_State;
 
 void box_lua_sqlite_init(struct lua_State *L);
 
+int
+lbox_sql_execute(struct lua_State *L);
+
 #ifdef __cplusplus
 }
 #endif

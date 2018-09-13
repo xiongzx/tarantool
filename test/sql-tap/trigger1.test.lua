@@ -43,7 +43,7 @@ test:do_catchsql_test(
         END;
     ]], {
         -- <trigger1-1.1.1>
-        1, "Space 'NO_SUCH_TABLE' does not exist"
+        1, "Failed to execute SQL statement: Space 'NO_SUCH_TABLE' does not exist"
         -- </trigger1-1.1.1>
     })
 
@@ -55,7 +55,7 @@ test:do_catchsql_test(
         END;
     ]], {
         -- <trigger1-1.1.2>
-        1, "Space 'NO_SUCH_TABLE' does not exist"
+        1, "Failed to execute SQL statement: Space 'NO_SUCH_TABLE' does not exist"
         -- </trigger1-1.1.2>
     })
 

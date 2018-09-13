@@ -6,6 +6,7 @@ engine = test_run:get_cfg('engine')
 ...
 box.sql.execute('pragma sql_default_engine=\''..engine..'\'')
 ---
+- rowcount: 1
 ...
 -- All tables in SQL are now WITHOUT ROW ID, so if user
 -- tries to create table without a primary key, an appropriate error message
@@ -15,6 +16,7 @@ box.cfg{}
 ...
 box.sql.execute("CREATE TABLE t1(a INT PRIMARY KEY, b UNIQUE)")
 ---
+- rowcount: 1
 ...
 box.sql.execute("CREATE TABLE t2(a UNIQUE, b)")
 ---
@@ -34,6 +36,7 @@ box.sql.execute("CREATE TABLE t5(a, b UNIQUE)")
 ...
 box.sql.execute("DROP TABLE t1")
 ---
+- rowcount: 1
 ...
 --
 -- gh-3522: invalid primary key name

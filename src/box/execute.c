@@ -28,6 +28,7 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+#include <box/lua/tuple.h>
 #include "execute.h"
 
 #include "iproto_constants.h"
@@ -42,6 +43,7 @@
 #include "schema.h"
 #include "port.h"
 #include "tuple.h"
+#include "mpstream.h"
 
 const char *sql_type_strs[] = {
 	NULL,
@@ -664,4 +666,61 @@ finish:
 	port_destroy(&response->port);
 	sqlite3_finalize(stmt);
 	return rc;
+}
+
+/** Callback to forward and error from mpstream methods. */
+static void
+set_encode_error(void *error_ctx)
+{
+	*(bool *)error_ctx = true;
+}
+
+char *
+sql_response_encode(struct region *region, struct sql_response *response,
+		    uint32_t *size)
+{
+	struct mpstream stream;
+	bool is_error;
+	uint32_t used = region_used(region);
+	mpstream_init(&stream, region, region_reserve_cb, region_alloc_cb,
+		      set_encode_error, &is_error);
+
+	sqlite3 *db = sql_get();
+	struct sqlite3_stmt *stmt = (struct sqlite3_stmt *) response->prep_stmt;
+	int column_count = sqlite3_column_count(stmt);
+	mpstream_encode_map(&stream, 1 + (column_count > 0));
+	if (column_count > 0) {
+		mpstream_encode_uint(&stream, IPROTO_METADATA);
+		mpstream_encode_array(&stream, column_count);
+		for (int i = 0; i < column_count; ++i) {
+			mpstream_encode_map(&stream, 1);
+			mpstream_encode_uint(&stream, IPROTO_FIELD_NAME);
+			const char *name = sqlite3_column_name(stmt, i);
+			mpstream_encode_str(&stream, name);
+		}
+		mpstream_encode_uint(&stream, IPROTO_DATA);
+		struct port_tuple *port_tuple = (struct port_tuple *)&response->port;
+		mpstream_encode_array(&stream, port_tuple->size);
+		for (struct port_tuple_entry *pe = port_tuple->first;
+		     pe != NULL; pe = pe->next) {
+			tuple_to_mpstream(pe->tuple, &stream);
+		}
+	} else {
+		mpstream_encode_uint(&stream, IPROTO_SQL_INFO);
+		mpstream_encode_map(&stream, 1);
+		mpstream_encode_uint(&stream, SQL_INFO_ROW_COUNT);
+		mpstream_encode_uint(&stream, sqlite3_changes(db));
+	}
+
+	mpstream_flush(&stream);
+	if (is_error) {
+		diag_set(OutOfMemory, stream.pos - stream.buf,
+			 "mpstream_flush", "stream");
+		return NULL;
+	}
+	*size = region_used(region) - used;
+	char *raw = region_join(region, *size);
+	if (raw == NULL)
+		diag_set(OutOfMemory, *size, "region_join", "raw");
+	return raw;
 }

@@ -6,14 +6,17 @@ engine = test_run:get_cfg('engine')
 ...
 box.sql.execute('pragma sql_default_engine=\''..engine..'\'')
 ---
+- rowcount: 0
 ...
 -- box.cfg()
 -- create space
 box.sql.execute("CREATE TABLE zoobar (c1, c2 PRIMARY KEY, c3, c4)")
 ---
+- rowcount: 1
 ...
 box.sql.execute("CREATE UNIQUE INDEX zoobar2 ON zoobar(c1, c4)")
 ---
+- rowcount: 1
 ...
 -- Debug
 -- box.sql.execute("PRAGMA vdbe_debug=ON;")
@@ -24,7 +27,13 @@ for i=1, 100 do box.sql.execute(string.format("INSERT INTO zoobar VALUES (%d, %d
 -- Check table is not empty
 box.sql.execute("SELECT * FROM zoobar")
 ---
-- - [2, 1, 'c3', 444]
+- metadata:
+  - name: C1
+  - name: C2
+  - name: C3
+  - name: C4
+  rows:
+  - [2, 1, 'c3', 444]
   - [4, 2, 'c3', 444]
   - [6, 3, 'c3', 444]
   - [8, 4, 'c3', 444]
@@ -128,18 +137,26 @@ box.sql.execute("SELECT * FROM zoobar")
 -- Do clean up
 box.sql.execute("DELETE FROM zoobar")
 ---
+- rowcount: 0
 ...
 -- Make sure table is empty
 box.sql.execute("SELECT * from zoobar")
 ---
-- []
+- metadata:
+  - name: C1
+  - name: C2
+  - name: C3
+  - name: C4
+  rows: []
 ...
 -- Cleanup
 box.sql.execute("DROP INDEX zoobar2 ON zoobar")
 ---
+- rowcount: 1
 ...
 box.sql.execute("DROP TABLE zoobar")
 ---
+- rowcount: 1
 ...
 -- Debug
 -- require("console").start()

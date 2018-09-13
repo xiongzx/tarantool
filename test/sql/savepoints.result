@@ -6,6 +6,7 @@ engine = test_run:get_cfg('engine')
 ...
 box.sql.execute('pragma sql_default_engine=\''..engine..'\'')
 ---
+- rowcount: 1
 ...
 -- These tests check that SQL savepoints properly work outside
 -- transactions as well as inside transactions started in Lua.
@@ -13,15 +14,18 @@ box.sql.execute('pragma sql_default_engine=\''..engine..'\'')
 --
 box.sql.execute('SAVEPOINT t1;');
 ---
-- error: Can not set a savepoint in absence of active transaction
+- error: 'Failed to execute SQL statement: Can not set a savepoint in absence of active
+    transaction'
 ...
 box.sql.execute('RELEASE SAVEPOINT t1;');
 ---
-- error: Can not set a savepoint in absence of active transaction
+- error: 'Failed to execute SQL statement: Can not set a savepoint in absence of active
+    transaction'
 ...
 box.sql.execute('ROLLBACK TO SAVEPOINT t1;');
 ---
-- error: Can not set a savepoint in absence of active transaction
+- error: 'Failed to execute SQL statement: Can not set a savepoint in absence of active
+    transaction'
 ...
 box.begin() box.sql.execute('SAVEPOINT t1;') box.sql.execute('RELEASE SAVEPOINT t1;') box.commit();
 ---

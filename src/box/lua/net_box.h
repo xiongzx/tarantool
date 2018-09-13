@@ -40,6 +40,9 @@ struct lua_State;
 int
 luaopen_net_box(struct lua_State *L);
 
+int
+netbox_decode_execute(struct lua_State *L);
+
 #if defined(__cplusplus)
 } /* extern "C" */
 #endif /* defined(__cplusplus) */

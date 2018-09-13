@@ -6,20 +6,25 @@ engine = test_run:get_cfg('engine')
 ...
 box.sql.execute('pragma sql_default_engine=\''..engine..'\'')
 ---
+- rowcount: 1
 ...
 -- create space
 box.sql.execute("CREATE TABLE foobar (foo PRIMARY KEY, bar)")
 ---
+- rowcount: 1
 ...
 -- prepare data
 box.sql.execute("INSERT INTO foobar VALUES (1, 'foo')")
 ---
+- rowcount: 1
 ...
 box.sql.execute("INSERT INTO foobar VALUES (2, 'bar')")
 ---
+- rowcount: 1
 ...
 box.sql.execute("INSERT INTO foobar VALUES (1000, 'foobar')")
 ---
+- rowcount: 1
 ...
 box.sql.execute("INSERT INTO foobar VALUES (1, 'duplicate')")
 ---
@@ -28,115 +33,219 @@ box.sql.execute("INSERT INTO foobar VALUES (1, 'duplicate')")
 -- simple select
 box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar")
 ---
-- - ['foo', 1, 42, 'awesome']
+- metadata:
+  - name: BAR
+  - name: FOO
+  - name: '42'
+  - name: '''awesome'''
+  rows:
+  - ['foo', 1, 42, 'awesome']
   - ['bar', 2, 42, 'awesome']
   - ['foobar', 1000, 42, 'awesome']
 ...
 box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar LIMIT 2")
 ---
-- - ['foo', 1, 42, 'awesome']
+- metadata:
+  - name: BAR
+  - name: FOO
+  - name: '42'
+  - name: '''awesome'''
+  rows:
+  - ['foo', 1, 42, 'awesome']
   - ['bar', 2, 42, 'awesome']
 ...
 box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar WHERE foo=2")
 ---
-- - ['bar', 2, 42, 'awesome']
+- metadata:
+  - name: BAR
+  - name: FOO
+  - name: '42'
+  - name: '''awesome'''
+  rows:
+  - ['bar', 2, 42, 'awesome']
 ...
 box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar WHERE foo>2")
 ---
-- - ['foobar', 1000, 42, 'awesome']
+- metadata:
+  - name: BAR
+  - name: FOO
+  - name: '42'
+  - name: '''awesome'''
+  rows:
+  - ['foobar', 1000, 42, 'awesome']
 ...
 box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar WHERE foo>=2")
 ---
-- - ['bar', 2, 42, 'awesome']
+- metadata:
+  - name: BAR
+  - name: FOO
+  - name: '42'
+  - name: '''awesome'''
+  rows:
+  - ['bar', 2, 42, 'awesome']
   - ['foobar', 1000, 42, 'awesome']
 ...
 box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar WHERE foo=10000")
 ---
-- []
+- metadata:
+  - name: BAR
+  - name: FOO
+  - name: '42'
+  - name: '''awesome'''
+  rows: []
 ...
 box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar WHERE foo>10000")
 ---
-- []
+- metadata:
+  - name: BAR
+  - name: FOO
+  - name: '42'
+  - name: '''awesome'''
+  rows: []
 ...
 box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar WHERE foo<2")
 ---
-- - ['foo', 1, 42, 'awesome']
+- metadata:
+  - name: BAR
+  - name: FOO
+  - name: '42'
+  - name: '''awesome'''
+  rows:
+  - ['foo', 1, 42, 'awesome']
 ...
 box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar WHERE foo<2.001")
 ---
-- - ['foo', 1, 42, 'awesome']
+- metadata:
+  - name: BAR
+  - name: FOO
+  - name: '42'
+  - name: '''awesome'''
+  rows:
+  - ['foo', 1, 42, 'awesome']
   - ['bar', 2, 42, 'awesome']
 ...
 box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar WHERE foo<=2")
 ---
-- - ['foo', 1, 42, 'awesome']
+- metadata:
+  - name: BAR
+  - name: FOO
+  - name: '42'
+  - name: '''awesome'''
+  rows:
+  - ['foo', 1, 42, 'awesome']
   - ['bar', 2, 42, 'awesome']
 ...
 box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar WHERE foo<100")
 ---
-- - ['foo', 1, 42, 'awesome']
+- metadata:
+  - name: BAR
+  - name: FOO
+  - name: '42'
+  - name: '''awesome'''
+  rows:
+  - ['foo', 1, 42, 'awesome']
   - ['bar', 2, 42, 'awesome']
 ...
 box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar WHERE bar='foo'")
 ---
-- - ['foo', 1, 42, 'awesome']
+- metadata:
+  - name: BAR
+  - name: FOO
+  - name: '42'
+  - name: '''awesome'''
+  rows:
+  - ['foo', 1, 42, 'awesome']
 ...
 box.sql.execute("SELECT count(*) FROM foobar")
 ---
-- - [3]
+- metadata:
+  - name: count(*)
+  rows:
+  - [3]
 ...
 box.sql.execute("SELECT count(*) FROM foobar WHERE bar='foo'")
 ---
-- - [1]
+- metadata:
+  - name: count(*)
+  rows:
+  - [1]
 ...
 box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar ORDER BY bar")
 ---
-- - ['bar', 2, 42, 'awesome']
+- metadata:
+  - name: BAR
+  - name: FOO
+  - name: '42'
+  - name: '''awesome'''
+  rows:
+  - ['bar', 2, 42, 'awesome']
   - ['foo', 1, 42, 'awesome']
   - ['foobar', 1000, 42, 'awesome']
 ...
 box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar ORDER BY bar DESC")
 ---
-- - ['foobar', 1000, 42, 'awesome']
+- metadata:
+  - name: BAR
+  - name: FOO
+  - name: '42'
+  - name: '''awesome'''
+  rows:
+  - ['foobar', 1000, 42, 'awesome']
   - ['foo', 1, 42, 'awesome']
   - ['bar', 2, 42, 'awesome']
 ...
 -- updates
 box.sql.execute("REPLACE INTO foobar VALUES (1, 'cacodaemon')")
 ---
+- rowcount: 1
 ...
 box.sql.execute("SELECT COUNT(*) FROM foobar WHERE foo=1")
 ---
-- - [1]
+- metadata:
+  - name: COUNT(*)
+  rows:
+  - [1]
 ...
 box.sql.execute("SELECT COUNT(*) FROM foobar WHERE bar='cacodaemon'")
 ---
-- - [1]
+- metadata:
+  - name: COUNT(*)
+  rows:
+  - [1]
 ...
 box.sql.execute("DELETE FROM foobar WHERE bar='cacodaemon'")
 ---
+- rowcount: 1
 ...
 box.sql.execute("SELECT COUNT(*) FROM foobar WHERE bar='cacodaemon'")
 ---
-- - [0]
+- metadata:
+  - name: COUNT(*)
+  rows:
+  - [0]
 ...
 -- multi-index
 -- create space
 box.sql.execute("CREATE TABLE barfoo (bar, foo NUM PRIMARY KEY)")
 ---
+- rowcount: 1
 ...
 box.sql.execute("CREATE UNIQUE INDEX barfoo2 ON barfoo(bar)")
 ---
+- rowcount: 1
 ...
 -- prepare data
 box.sql.execute("INSERT INTO barfoo VALUES ('foo', 1)")
 ---
+- rowcount: 1
 ...
 box.sql.execute("INSERT INTO barfoo VALUES ('bar', 2)")
 ---
+- rowcount: 1
 ...
 box.sql.execute("INSERT INTO barfoo VALUES ('foobar', 1000)")
 ---
+- rowcount: 1
 ...
 -- prove barfoo2 was created
 box.sql.execute("INSERT INTO barfoo VALUES ('xfoo', 1)")
@@ -145,37 +254,60 @@ box.sql.execute("INSERT INTO barfoo VALUES ('xfoo', 1)")
 ...
 box.sql.execute("SELECT foo, bar FROM barfoo")
 ---
-- - [1, 'foo']
+- metadata:
+  - name: FOO
+  - name: BAR
+  rows:
+  - [1, 'foo']
   - [2, 'bar']
   - [1000, 'foobar']
 ...
 box.sql.execute("SELECT foo, bar FROM barfoo WHERE foo==2")
 ---
-- - [2, 'bar']
+- metadata:
+  - name: FOO
+  - name: BAR
+  rows:
+  - [2, 'bar']
 ...
 box.sql.execute("SELECT foo, bar FROM barfoo WHERE bar=='foobar'")
 ---
-- - [1000, 'foobar']
+- metadata:
+  - name: FOO
+  - name: BAR
+  rows:
+  - [1000, 'foobar']
 ...
 box.sql.execute("SELECT foo, bar FROM barfoo WHERE foo>=2")
 ---
-- - [2, 'bar']
+- metadata:
+  - name: FOO
+  - name: BAR
+  rows:
+  - [2, 'bar']
   - [1000, 'foobar']
 ...
 box.sql.execute("SELECT foo, bar FROM barfoo WHERE foo<=2")
 ---
-- - [1, 'foo']
+- metadata:
+  - name: FOO
+  - name: BAR
+  rows:
+  - [1, 'foo']
   - [2, 'bar']
 ...
 -- cleanup
 box.sql.execute("DROP INDEX barfoo2 ON barfoo")
 ---
+- rowcount: 1
 ...
 box.sql.execute("DROP TABLE foobar")
 ---
+- rowcount: 1
 ...
 box.sql.execute("DROP TABLE barfoo")
 ---
+- rowcount: 1
 ...
 -- attempt to create a table lacking PRIMARY KEY
 box.sql.execute("CREATE TABLE without_rowid_lacking_primary_key(x)")
@@ -190,7 +322,9 @@ box.sql.execute("CREATE TABLE rowid(x)")
 -- create a table with implicit indices (used to SEGFAULT)
 box.sql.execute("CREATE TABLE implicit_indices(a PRIMARY KEY,b,c,d UNIQUE)")
 ---
+- rowcount: 1
 ...
 box.sql.execute("DROP TABLE implicit_indices")
 ---
+- rowcount: 1
 ...

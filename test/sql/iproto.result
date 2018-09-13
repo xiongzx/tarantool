@@ -9,9 +9,11 @@ engine = test_run:get_cfg('engine')
 ...
 box.sql.execute('pragma sql_default_engine=\''..engine..'\'')
 ---
+- rowcount: 1
 ...
 box.sql.execute('create table test (id primary key, a float, b text)')
 ---
+- rowcount: 1
 ...
 space = box.space.TEST
 ---
@@ -30,7 +32,12 @@ space:replace{7, 8.5, '9'}
 ...
 box.sql.execute('select * from test')
 ---
-- - [1, 2, '3']
+- metadata:
+  - name: ID
+  - name: A
+  - name: B
+  rows:
+  - [1, 2, '3']
   - [4, 5, '6']
   - [7, 8.5, '9']
 ...
@@ -523,6 +530,7 @@ res.metadata
 ...
 box.sql.execute('drop table test')
 ---
+- rowcount: 1
 ...
 cn:close()
 ---
@@ -579,6 +587,7 @@ cn:close()
 ...
 box.sql.execute('drop table test')
 ---
+- rowcount: 1
 ...
 box.schema.user.revoke('guest', 'read,write,execute', 'universe')
 ---

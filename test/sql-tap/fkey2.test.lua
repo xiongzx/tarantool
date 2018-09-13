@@ -300,7 +300,7 @@ test:do_catchsql_test(
     [[
         CREATE TABLE t9(a PRIMARY KEY REFERENCES nosuchtable, b);
     ]], {
-        1, "Space 'NOSUCHTABLE' does not exist"
+        1, "Failed to execute SQL statement: Space 'NOSUCHTABLE' does not exist"
     })
 
 test:do_catchsql_test(
@@ -716,7 +716,7 @@ test:do_catchsql_test(
         CREATE TABLE c(x PRIMARY KEY REFERENCES p(c));
     ]], {
         -- <fkey2-7.1>
-        1, "Failed to create foreign key constraint 'FK_CONSTRAINT_1_C': foreign key refers to nonexistent field C"
+        1, "Failed to execute SQL statement: Failed to create foreign key constraint 'FK_CONSTRAINT_1_C': foreign key refers to nonexistent field C"
         -- </fkey2-7.1>
     })
 
@@ -755,7 +755,7 @@ test:do_catchsql_test(
         CREATE TABLE c(x PRIMARY KEY REFERENCES p);
     ]], {
         -- <fkey2-7.4>
-        1, "Failed to create foreign key constraint 'FK_CONSTRAINT_1_C': number of columns in foreign key does not match the number of columns in the primary index of referenced table"
+        1, "Failed to execute SQL statement: Failed to create foreign key constraint 'FK_CONSTRAINT_1_C': number of columns in foreign key does not match the number of columns in the primary index of referenced table"
         -- </fkey2-7.4>
     })
 
@@ -1047,7 +1047,7 @@ test:do_catchsql_test(
         CREATE TABLE t1(a PRIMARY KEY, b REFERENCES nosuchtable);
     ]], {
         -- <fkey2-10.6>
-        1, "Space 'NOSUCHTABLE' does not exist"
+        1, "Failed to execute SQL statement: Space 'NOSUCHTABLE' does not exist"
         -- </fkey2-10.6>
     })
 
@@ -1070,7 +1070,7 @@ test:do_catchsql_test(
         DROP TABLE t1;
     ]], {
         -- <fkey2-10.8>
-        1, "Can't drop space 'T1': other objects depend on it"
+        1, "Failed to execute SQL statement: Can't drop space 'T1': other objects depend on it"
         -- </fkey2-10.8>
     })
 
@@ -1093,7 +1093,7 @@ test:do_catchsql_test(
         CREATE TABLE cc(a PRIMARY KEY, b, FOREIGN KEY(a, b) REFERENCES pp(x, z));
     ]], {
         -- <fkey2-10.14>
-        1, "Failed to create foreign key constraint 'FK_CONSTRAINT_1_CC': foreign key refers to nonexistent field Z"
+        1, "Failed to execute SQL statement: Failed to create foreign key constraint 'FK_CONSTRAINT_1_CC': foreign key refers to nonexistent field Z"
         -- </fkey2-10.14>
     })
 
@@ -1132,7 +1132,7 @@ test:do_catchsql_test(
         DROP TABLE b1;
     ]], {
         -- <fkey2-10.18>
-        1, "Can't drop space 'B1': other objects depend on it"
+        1, "Failed to execute SQL statement: Can't drop space 'B1': other objects depend on it"
         -- </fkey2-10.18>
     })
 
@@ -1143,7 +1143,7 @@ test:do_catchsql_test(
         DROP TABLE b2;
     ]], {
         -- <fkey2-10.19>
-        1, "Can't drop space 'B2': other objects depend on it"
+        1, "Failed to execute SQL statement: Can't drop space 'B2': other objects depend on it"
         -- </fkey2-10.19>
     })
 

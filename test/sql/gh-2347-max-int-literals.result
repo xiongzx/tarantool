@@ -6,17 +6,24 @@ engine = test_run:get_cfg('engine')
 ...
 box.sql.execute('pragma sql_default_engine=\''..engine..'\'')
 ---
+- rowcount: 0
 ...
 box.cfg{}
 ---
 ...
 box.sql.execute("select (9223372036854775807)")
 ---
-- - [9223372036854775807]
+- metadata:
+  - name: (9223372036854775807)
+  rows:
+  - [9223372036854775807]
 ...
 box.sql.execute("select (-9223372036854775808)")
 ---
-- - [-9223372036854775808]
+- metadata:
+  - name: (-9223372036854775808)
+  rows:
+  - [-9223372036854775808]
 ...
 box.sql.execute("select (9223372036854775808)")
 ---

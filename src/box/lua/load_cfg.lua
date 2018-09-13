@@ -453,6 +453,7 @@ local function load_cfg(cfg)
     if not box.cfg.read_only and not box.cfg.replication then
         box.schema.upgrade{auto = true}
     end
+    box.sql.execute = box.call
 end
 box.cfg = locked(load_cfg)
 

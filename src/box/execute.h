@@ -51,6 +51,7 @@ struct obuf;
 struct region;
 struct sql_bind;
 struct xrow_header;
+struct mpstream;
 
 /** EXECUTE request. */
 struct sql_request {
@@ -108,6 +109,10 @@ struct sql_response {
  */
 int
 sql_response_dump(struct sql_response *response, struct obuf *out);
+
+char *
+sql_response_encode(struct region *region, struct sql_response *response,
+		    uint32_t *size);
 
 /**
  * Parse the EXECUTE request.

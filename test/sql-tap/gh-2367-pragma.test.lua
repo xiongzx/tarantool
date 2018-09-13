@@ -19,7 +19,7 @@ test:do_catchsql_test(
 	[[
 		pragma sql_default_engine='creepy';
 	]], {
-	1, "Space engine 'creepy' does not exist"
+	1, "Failed to execute SQL statement: Space engine 'creepy' does not exist"
 })
 
 test:do_catchsql_test(
@@ -43,7 +43,7 @@ test:do_catchsql_test(
 	[[
 		pragma sql_default_engine;
 	]], {
-	1, 'Illegal parameters, \'sql_default_engine\' was not specified'
+	1, 'Failed to execute SQL statement: Illegal parameters, \'sql_default_engine\' was not specified'
 })
 
 test:do_catchsql_test(

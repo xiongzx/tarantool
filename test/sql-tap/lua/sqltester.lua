@@ -167,13 +167,36 @@ local function do_test(self, label, func, expect)
 end
 test.do_test = do_test
 
+local function convert_tuple_table(result)
+    if result == nil then return result end
+    local ret = nil
+    if result.rows ~= nil then
+        ret = {}
+        for key, row in pairs(result.rows) do
+            if type(row) == 'cdata' then
+                table.insert(ret, row:totable())
+            end
+        end
+    end
+    if result.metadata ~= nil then
+        if ret == nil then ret = {} end
+        ret[0] = {}
+        for key, row in pairs(result.metadata) do
+            table.insert(ret[0], row['name'])
+        end
+        setmetatable(ret, {__serialize = 'sequence'})
+    end
+    return ret
+end
+
 local function execsql_one_by_one(sql)
     local queries = sql_tokenizer.split_sql(sql)
     local last_res = nil
     for _, query in pairs(queries) do
         last_res = box.sql.execute(query) or last_res
     end
-    return last_res
+
+    return convert_tuple_table(last_res)
 end
 
 local function execsql(self, sql)

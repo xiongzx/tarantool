@@ -86,6 +86,12 @@ static const char *lua_sources[] = {
 };
 
 static int
+lbox_call(lua_State *L)
+{
+	return lbox_sql_execute(L);
+}
+
+static int
 lbox_commit(lua_State *L)
 {
 	if (box_txn_commit() != 0)
@@ -274,6 +280,7 @@ static const struct luaL_Reg boxlib[] = {
 	{"on_commit", lbox_on_commit},
 	{"on_rollback", lbox_on_rollback},
 	{"snapshot", lbox_snapshot},
+	{"call", lbox_call},
 	{NULL, NULL}
 };
 

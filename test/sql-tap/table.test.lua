@@ -791,7 +791,7 @@ test:do_catchsql_test(
         );
     ]], {
         -- <table-10.7>
-        1, "Failed to create foreign key constraint 'FK_CONSTRAINT_1_T6': foreign key refers to nonexistent field B"
+        1, "Failed to execute SQL statement: Failed to create foreign key constraint 'FK_CONSTRAINT_1_T6': foreign key refers to nonexistent field B"
         -- </table-10.7>
     })
 
@@ -820,7 +820,7 @@ test:do_catchsql_test(
         );
     ]], {
         -- <table-10.9>
-        1, "Failed to create foreign key constraint 'FK_CONSTRAINT_1_T6': number of columns in foreign key does not match the number of columns in the primary index of referenced table"
+        1, "Failed to execute SQL statement: Failed to create foreign key constraint 'FK_CONSTRAINT_1_T6': number of columns in foreign key does not match the number of columns in the primary index of referenced table"
         -- </table-10.9>
     })
 
@@ -835,7 +835,7 @@ test:do_test(
         ]]
     end, {
         -- <table-10.10>
-        1, "Failed to create foreign key constraint 'FK_CONSTRAINT_1_T6': number of columns in foreign key does not match the number of columns in the primary index of referenced table"
+        1, "Failed to execute SQL statement: Failed to create foreign key constraint 'FK_CONSTRAINT_1_T6': number of columns in foreign key does not match the number of columns in the primary index of referenced table"
         -- </table-10.10>
     })
 
@@ -848,7 +848,7 @@ test:do_test(
         ]]
     end, {
         -- <table-10.11>
-        1, "Failed to create foreign key constraint 'FK_CONSTRAINT_1_T6': number of columns in foreign key does not match the number of columns in the primary index of referenced table"
+        1, "Failed to execute SQL statement: Failed to create foreign key constraint 'FK_CONSTRAINT_1_T6': number of columns in foreign key does not match the number of columns in the primary index of referenced table"
         -- </table-10.11>
     })
 
@@ -863,7 +863,7 @@ test:do_test(
         ]]
     end, {
         -- <table-10.12>
-        1, [[Failed to create foreign key constraint 'FK_CONSTRAINT_1_T6': unknown column X in foreign key definition]]
+        1, [[Failed to execute SQL statement: Failed to create foreign key constraint 'FK_CONSTRAINT_1_T6': unknown column X in foreign key definition]]
         -- </table-10.12>
     })
 
@@ -878,7 +878,7 @@ test:do_test(
         ]]
     end, {
         -- <table-10.13>
-        1, [[Failed to create foreign key constraint 'FK_CONSTRAINT_1_T6': unknown column X in foreign key definition]]
+        1, [[Failed to execute SQL statement: Failed to create foreign key constraint 'FK_CONSTRAINT_1_T6': unknown column X in foreign key definition]]
         -- </table-10.13>
     })
 

@@ -206,8 +206,8 @@ data = {
     { 3,  [["binary"]], {0}},
     { 4,  [["bInaRy"]], {0}},
     { 5,  [["unicode"]], {0}},
-    { 6,  [[ unicode ]], {1,"Collation 'UNICODE' does not exist"}},
-    { 7,  [["UNICODE"]], {1,"Collation 'UNICODE' does not exist"}}
+    { 6,  [[ unicode ]], {1,"Failed to execute SQL statement: Collation 'UNICODE' does not exist"}},
+    { 7,  [["UNICODE"]], {1,"Failed to execute SQL statement: Collation 'UNICODE' does not exist"}}
 }
 
 test:do_catchsql_test(

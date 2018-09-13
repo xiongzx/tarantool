@@ -252,6 +252,6 @@ test:do_catchsql_set_test(like_testcases, prefix)
 test:do_catchsql_test(
         "collation-2.5.0",
         'CREATE TABLE test3 (a int, b int, c int, PRIMARY KEY (a, a COLLATE foo, b, c))',
-        {1, "Collation 'FOO' does not exist"})
+        {1, "Failed to execute SQL statement: Collation 'FOO' does not exist"})
 
 test:finish_test()
