@@ -49,6 +49,7 @@
 
 #include "msgpuck/msgpuck.h"
 
+#include "box/tuple.h"
 #include "box/schema.h"
 #include "box/space.h"
 #include "box/sequence.h"
@@ -2471,7 +2472,7 @@ case OP_IsNull: {            /* same as TK_ISNULL, jump, in1 */
 	break;
 }
 
-/* Opcode: NotNull P1 P2 * * *
+/* Opcode: NotNull P1 P2 * P4 *
  * Synopsis: if r[P1]!=NULL goto P2
  *
  * Jump to P2 if the value in register P1 is not NULL.
@@ -2482,6 +2483,23 @@ case OP_NotNull: {            /* same as TK_NOTNULL, jump, in1 */
 	if ((pIn1->flags & MEM_Null)==0) {
 		goto jump_to_p2;
 	}
+	break;
+}
+
+/* Opcode: OP_FieldMapMemory P1 P2 * P4 *
+ * Synopsis: r[P1]=unpackrec(P4)
+ *
+ * Map msgpack from P4 register to VDBE memory register P1 and
+ * apply affinity P2 if specified.
+ */
+case OP_FieldMapMemory: {
+	assert(pOp->p4type == P4_STATIC);
+	char *raw = pOp->p4.z;
+	struct Mem *dest = &aMem[pOp->p1];
+	memAboutToChange(p, dest);
+	sqlite3VdbeMsgpackGet((const unsigned char *)raw, dest);
+	if (pOp->p2 != 0)
+		applyAffinity(dest, (char)pOp->p2);
 	break;
 }
 

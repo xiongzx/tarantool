@@ -1763,3 +1763,70 @@ sql_checks_resolve_space_def_reference(ExprList *expr_list,
 	sql_parser_destroy(&parser);
 	return rc;
 }
+
+int
+sql_make_constraint_checks(struct space *space, struct tuple *new_tuple,
+			   struct tuple *old_tuple)
+{
+	assert(new_tuple != NULL);
+	struct ExprList *checks = space->def->opts.checks;
+	assert(checks != NULL);
+	struct session *user_session = current_session();
+	if ((user_session->sql_flags & SQLITE_IgnoreChecks) != 0)
+		return 0;
+
+	struct Parse parser;
+	sql_parser_create(&parser, sql_get());
+	struct Vdbe *v = sqlite3GetVdbe(&parser);
+	parser.pVdbe = v;
+	int reg = sqlite3GetTempRange(&parser, space->def->field_count);
+	struct region *region = &fiber()->gc;
+	uint32_t data_size = new_tuple->bsize + 1 +
+			     old_tuple != NULL ?
+			     sizeof(int)*space->def->field_count : 0;
+	char *data = region_alloc(region, data_size);
+	if (data == NULL) {
+		diag_set(OutOfMemory, data_size, "region_alloc", "data");
+		return -1;
+	}
+	memcpy(data, tuple_data(new_tuple), new_tuple->bsize);
+	data[new_tuple->bsize] = 0;
+	int *update_mask = NULL;
+	const char *old_tuple_raw = NULL;
+	if (old_tuple != NULL) {
+		update_mask = (int *)(data + old_tuple->bsize + 1);
+		memset(update_mask, -1, space->def->field_count);
+		old_tuple_raw = tuple_data(old_tuple);
+		mp_decode_array(&old_tuple_raw);
+	}
+	const char *new_tuple_raw = data;
+	mp_decode_array(&new_tuple_raw);
+	for (uint32_t i = 0; i < space->def->field_count; i++) {
+		const char *new_tuple_field = new_tuple_raw;
+		mp_next(&new_tuple_raw);
+		sqlite3VdbeAddOp4(v, OP_FieldMapMemory, reg + i, 0, 0,
+				  (void *)new_tuple_field, P4_STATIC);
+		if (old_tuple_raw == NULL)
+			continue;
+		const char *old_tuple_field = old_tuple_raw;
+		mp_next(&old_tuple_raw);
+		update_mask[i] =
+			(old_tuple_raw - old_tuple_field !=
+			 new_tuple_raw - new_tuple_field ||
+			 memcmp(new_tuple_field, old_tuple_field,
+				old_tuple_raw - old_tuple_field) != 0) ? -1 : 0;
+	}
+	int skip_label = sqlite3VdbeMakeLabel(v);
+	vdbe_emit_checks_test(&parser, space->def->name, checks, reg,
+			      ON_CONFLICT_ACTION_DEFAULT, skip_label,
+			      update_mask);
+	sqlite3VdbeResolveLabel(v, skip_label);
+	sql_finish_coding(&parser);
+	struct sqlite3_stmt *stmt = (struct sqlite3_stmt *)v;
+	int rc = sqlite3_step(stmt);
+	if (rc != SQLITE_DONE)
+		diag_set(ClientError, ER_SQL_EXECUTE, v->zErrMsg);
+	sql_parser_destroy(&parser);
+	sqlite3_finalize(stmt);
+	return rc != SQLITE_DONE ? -1 : 0;
+}

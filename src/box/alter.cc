@@ -39,6 +39,7 @@
 #include "coll_id_def.h"
 #include "txn.h"
 #include "tuple.h"
+#include "trigger.h"
 #include "fiber.h" /* for gc_pool */
 #include "scoped_guard.h"
 #include "third_party/base64.h"
@@ -1425,6 +1426,27 @@ on_drop_space_rollback(struct trigger *trigger, void *event)
 }
 
 /**
+ * SQL-specific actions for space.
+ */
+static void
+on_replace_dd_space_sql(struct trigger *trigger, void *event)
+{
+	uint32_t space_id = (uint32_t)(uintptr_t)trigger->data;
+	struct space *space = space_cache_find(space_id);
+	assert(space != NULL);
+	struct txn *txn = (struct txn *) event;
+	struct txn_stmt *stmt = txn_current_stmt(txn);
+	if (stmt == NULL)
+		return;
+	struct tuple *new_tuple = stmt->new_tuple;
+	if (new_tuple == NULL)
+		return;
+	struct tuple *old_tuple = stmt->old_tuple;
+	if (sql_make_constraint_checks(space, new_tuple, old_tuple) != 0)
+		diag_raise();
+}
+
+/**
  * Run the triggers registered on commit of a change in _space.
  */
 static void
@@ -1747,6 +1769,21 @@ on_replace_dd_space(struct trigger * /* trigger */, void *event)
 		struct trigger *on_rollback =
 			txn_alter_trigger_new(on_create_space_rollback, space);
 		txn_on_rollback(txn, on_rollback);
+		/* Setup SQL-actions trigger if required.  */
+		if (def->opts.checks != NULL) {
+			struct trigger *sql_actions_trigger =
+				(struct trigger *)malloc(sizeof(struct trigger));
+			if (sql_actions_trigger == NULL) {
+				tnt_raise(OutOfMemory, sizeof(struct trigger),
+					  "calloc",
+					  "sql_before_actions_trigger");
+			}
+			trigger_create(sql_actions_trigger,
+				       on_replace_dd_space_sql,
+				       (void *)(uintptr_t)space->def->id,
+				       (trigger_f0)free);
+			trigger_add(&space->on_replace, sql_actions_trigger);
+		}
 	} else if (new_tuple == NULL) { /* DELETE */
 		access_check_ddl(old_space->def->name, old_space->def->id,
 				 old_space->def->uid, SC_SPACE, PRIV_D, true);

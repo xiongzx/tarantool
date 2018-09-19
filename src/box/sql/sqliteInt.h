@@ -3884,6 +3884,26 @@ vdbe_emit_constraint_checks(struct Parse *parse_context,
 			    int ignore_label, int *upd_cols);
 
 /**
+ * Generate code to do SQL Checks tests.
+ *
+ * @param parse_context Current parsing context.
+ * @param space_name The name of space being inserted or updated.
+ * @param checks The list of checks constraints.
+ * @param new_tuple_reg First register in a range holding values
+ *                      to insert.
+ * @param on_conflict On conflict error action of INSERT or
+ *        UPDATE statement (for example INSERT OR REPLACE).
+ * @param ignore_label Jump to this label on an IGNORE resolution.
+ * @param upd_cols Columns to be updated with the size of table's
+ *                 field count. NULL for INSERT operation.
+ */
+void
+vdbe_emit_checks_test(struct Parse *parse_context, char *space_name,
+		      struct ExprList *checks, int new_tuple_reg,
+		      enum on_conflict_action on_conflict,
+		      int ignore_label, int *upd_cols);
+
+    /**
  * This routine generates code to finish the INSERT or UPDATE
  * operation that was started by a prior call to
  * vdbe_emit_constraint_checks. It encodes raw data which is held
@@ -3897,10 +3917,9 @@ vdbe_emit_constraint_checks(struct Parse *parse_context,
  * @param tuple_len Number of registers to hold the tuple.
  * @param on_conflict On conflict action.
  */
-void
-vdbe_emit_insertion_completion(struct Vdbe *v, int cursor_id, int raw_data_reg,
-			       uint32_t tuple_len,
-			       enum on_conflict_action on_conflict);
+    void vdbe_emit_insertion_completion(struct Vdbe *v, int cursor_id, int raw_data_reg,
+					uint32_t tuple_len,
+					enum on_conflict_action on_conflict);
 
 void
 sql_set_multi_write(Parse *, bool);

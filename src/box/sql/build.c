@@ -999,7 +999,7 @@ struct ExprList *
 space_checks_expr_list(uint32_t space_id)
 {
 	struct space *space;
-	space = space_by_id(space_id);
+	space = space_cache_find(space_id);
 	assert(space != NULL);
 	assert(space->def != NULL);
 	return space->def->opts.checks;

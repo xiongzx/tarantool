@@ -849,12 +849,54 @@ checkConstraintUnchanged(Expr * pExpr, int *aiChng)
 }
 
 void
+vdbe_emit_checks_test(struct Parse *parse_context, char *space_name,
+		      struct ExprList *checks, int new_tuple_reg,
+		      enum on_conflict_action on_conflict,
+		      int ignore_label, int *upd_cols)
+{
+	assert(checks != NULL);
+	struct session *user_session = current_session();
+	assert((user_session->sql_flags & SQLITE_IgnoreChecks) == 0);
+	struct Vdbe *v = sqlite3GetVdbe(parse_context);
+	/*
+	 * For CHECK constraint and for INSERT/UPDATE conflict
+	 * action DEFAULT and ABORT in fact has the same meaning.
+	 */
+	if (on_conflict == ON_CONFLICT_ACTION_DEFAULT)
+		on_conflict = ON_CONFLICT_ACTION_ABORT;
+	enum on_conflict_action on_conflict_check = on_conflict;
+	if (on_conflict == ON_CONFLICT_ACTION_REPLACE)
+		on_conflict_check = ON_CONFLICT_ACTION_ABORT;
+	parse_context->ckBase = new_tuple_reg;
+	for (int i = 0; i < checks->nExpr; i++) {
+		struct Expr *expr = checks->a[i].pExpr;
+		if (upd_cols != NULL &&
+		    checkConstraintUnchanged(expr, upd_cols))
+			continue;
+		int all_ok = sqlite3VdbeMakeLabel(v);
+		sqlite3ExprIfTrue(parse_context, expr, all_ok,
+				  SQLITE_JUMPIFNULL);
+		if (on_conflict == ON_CONFLICT_ACTION_IGNORE) {
+			sqlite3VdbeGoto(v, ignore_label);
+		} else {
+			char *name = checks->a[i].zName;
+			if (name == NULL)
+				name = space_name;
+			sqlite3HaltConstraint(parse_context,
+					      SQLITE_CONSTRAINT_CHECK,
+					      on_conflict_check, name,
+					      P4_TRANSIENT, P5_ConstraintCheck);
+		}
+		sqlite3VdbeResolveLabel(v, all_ok);
+	}
+}
+
+void
 vdbe_emit_constraint_checks(struct Parse *parse_context, struct Table *tab,
 			    int new_tuple_reg,
 			    enum on_conflict_action on_conflict,
 			    int ignore_label, int *upd_cols)
 {
-	struct session *user_session = current_session();
 	struct sqlite3 *db = parse_context->db;
 	struct Vdbe *v = sqlite3GetVdbe(parse_context);
 	assert(v != NULL);
@@ -917,45 +959,15 @@ vdbe_emit_constraint_checks(struct Parse *parse_context, struct Table *tab,
 			unreachable();
 		}
 	}
-	/*
-	 * For CHECK constraint and for INSERT/UPDATE conflict
-	 * action DEFAULT and ABORT in fact has the same meaning.
-	 */
-	if (on_conflict == ON_CONFLICT_ACTION_DEFAULT)
-		on_conflict = ON_CONFLICT_ACTION_ABORT;
-	/* Test all CHECK constraints. */
+	struct session *user_session = current_session();
 	struct ExprList *checks = space_checks_expr_list(def->id);
-	enum on_conflict_action on_conflict_check = on_conflict;
-	if (on_conflict == ON_CONFLICT_ACTION_REPLACE)
-		on_conflict_check = ON_CONFLICT_ACTION_ABORT;
 	if (checks != NULL &&
-	    (user_session->sql_flags & SQLITE_IgnoreChecks) == 0) {
-		parse_context->ckBase = new_tuple_reg;
-		for (int i = 0; i < checks->nExpr; i++) {
-			struct Expr *expr = checks->a[i].pExpr;
-			if (is_update &&
-			    checkConstraintUnchanged(expr, upd_cols))
-				continue;
-			int all_ok = sqlite3VdbeMakeLabel(v);
-			sqlite3ExprIfTrue(parse_context, expr, all_ok,
-					  SQLITE_JUMPIFNULL);
-			if (on_conflict == ON_CONFLICT_ACTION_IGNORE) {
-				sqlite3VdbeGoto(v, ignore_label);
-			} else {
-				char *name = checks->a[i].zName;
-				if (name == NULL)
-					name = def->name;
-				sqlite3HaltConstraint(parse_context,
-						      SQLITE_CONSTRAINT_CHECK,
-						      on_conflict_check, name,
-						      P4_TRANSIENT,
-						      P5_ConstraintCheck);
-			}
-			sqlite3VdbeResolveLabel(v, all_ok);
-		}
+	   (user_session->sql_flags & SQLITE_IgnoreChecks) == 0) {
+		vdbe_emit_checks_test(parse_context, def->name, checks,
+				      new_tuple_reg, on_conflict, ignore_label,
+				      upd_cols);
 	}
-	sql_emit_table_affinity(v, tab->def, new_tuple_reg);
-	/*
+	sql_emit_table_affinity(v, tab->def, new_tuple_reg); /*
 	 * If PK is marked as INTEGER, use it as strict type,
 	 * not as affinity. Emit code for type checking.
 	 * FIXME: should be removed after introducing

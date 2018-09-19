@@ -60,5 +60,22 @@ format = {{name = 'X', type = 'unsigned'}}
 t = {513, 1, 'test', 'memtx', 0, opts, format}
 s = box.space._space:insert(t)
 
+--
+-- gh-3691: Do SQL checks on server side
+--
+box.sql.execute("CREATE TABLE t1(x INTEGER CONSTRAINT ONE CHECK( x<5 ), y REAL CONSTRAINT TWO CHECK( y>x ), z primary key);")
+box.space.T1:insert({7, 1, 1})
+box.space.T1:insert({2, 1, 1})
+box.space.T1:insert({2, 4, 1})
+box.sql.execute("DROP TABLE t1");
+
+opts = {checks = {{expr = 'X > 5', name = 'ONE'}}}
+format = {{name = 'X', type = 'unsigned'}}
+t = {513, 1, 'test', 'memtx', 0, opts, format}
+s = box.space._space:insert(t)
+_ = box.space.test:create_index('pk')
+box.space.test:insert({1})
+box.space.test:insert({6})
+box.space.test:drop()
 
 test_run:cmd("clear filter")

@@ -67,6 +67,8 @@ struct Parse;
 struct Select;
 struct Table;
 struct sql_trigger;
+struct space;
+struct tuple;
 
 /**
  * Perform parsing of provided expression. This is done by
@@ -404,6 +406,19 @@ sql_select_from_table_count(const struct Select *select);
  */
 const char *
 sql_select_from_table_name(const struct Select *select, int i);
+
+/**
+ * Make constrints checks for a tuple beeng inserted in space.
+ *
+ * @param space The space object to be inserted to.
+ * @param new_tuple New tuple to be inserted.
+ * @param old_tuple Old tuple to be replaced.
+ * @retval 0 On tuple may be inserted.
+ * @retval -1 Elsewhere. Diagnostic error is set.
+ */
+int
+sql_make_constraint_checks(struct space *space, struct tuple *new_tuple,
+			   struct tuple *old_tuple);
 
 #if defined(__cplusplus)
 } /* extern "C" { */
