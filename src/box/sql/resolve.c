@@ -602,6 +602,8 @@ resolveExprStep(Walker * pWalker, Expr * pExpr)
 		/* A lone identifier is the name of a column.
 		 */
 	case TK_ID:{
+			if ((pNC->ncFlags & NC_AllowAgg) != 0)
+				pNC->ncFlags |= NC_HasUnaggregatedId;
 			return lookupName(pParse, 0, pExpr->u.zToken, pNC,
 					  pExpr);
 		}
@@ -1180,6 +1182,44 @@ resolveOrderGroupBy(NameContext * pNC,	/* The name context of the SELECT stateme
 	return sqlite3ResolveOrderGroupBy(pParse, pSelect, pOrderBy, zType);
 }
 
+/**
+ * Test if specified expression is a regular literal.
+ * @param expr Expression to analyse.
+ * @retval true  If expression is literal.
+ * @retval false Otherwise.
+ */
+static bool
+sql_expr_is_literal(struct Expr *expr)
+{
+	return expr->op == TK_INTEGER || expr->op == TK_FLOAT ||
+	       expr->op == TK_BLOB || expr->op == TK_STRING;
+}
+
+/**
+ * Test if specified expression is a constant function.
+ * @param parser Parsing context.
+ * @param expr Expression to analyse.
+ * @retval true  If expression is a existent constant function.
+ * @retval false Otherwise.
+ */
+static bool
+sql_expr_is_constat_func(struct Parse *parser, struct Expr *expr)
+{
+	if (expr->op != TK_FUNCTION)
+		return false;
+	char *func_name = expr->u.zToken;
+	struct ExprList *args_list = expr->x.pList;
+	int args_count = args_list != NULL ? args_list->nExpr : 0;
+	struct FuncDef *func =
+		sqlite3FindFunction(parser->db, func_name, args_count, 0);
+	if (func == NULL)
+		func =  sqlite3FindFunction(parser->db, func_name, -2, 0);
+	if (func == NULL)
+		return false;
+	return func != NULL ?
+	       (func->funcFlags & SQLITE_FUNC_CONSTANT) != 0 : false;
+}
+
 /*
  * Resolve names in the SELECT statement p and all of its descendants.
  */
@@ -1285,13 +1325,23 @@ resolveSelectStep(Walker * pWalker, Select * p)
 		/* Set up the local name-context to pass to sqlite3ResolveExprNames() to
 		 * resolve the result-set expression list.
 		 */
+		bool is_all_select_agg = true;
 		sNC.ncFlags = NC_AllowAgg;
 		sNC.pSrcList = p->pSrc;
 		sNC.pNext = pOuterNC;
-
 		/* Resolve names in the result set. */
-		if (sqlite3ResolveExprListNames(&sNC, p->pEList))
-			return WRC_Abort;
+		for (i = 0; i < p->pEList->nExpr; i++) {
+			struct Expr *expr = p->pEList->a[i].pExpr;
+			u16 has_agg_flag = sNC.ncFlags & NC_HasAgg;
+			sNC.ncFlags &= ~NC_HasAgg;
+			if (sqlite3ResolveExprNames(&sNC, expr))
+				return WRC_Abort;
+			is_all_select_agg &= (sNC.ncFlags & NC_HasAgg) != 0 ||
+					     sql_expr_is_literal(expr) ||
+					     sql_expr_is_constat_func(pParse,
+								      expr);
+			sNC.ncFlags |= has_agg_flag;
+		}
 
 		/* If there are no aggregate functions in the result-set, and no GROUP BY
 		 * expression, do not allow aggregates in any of the other expressions.
@@ -1306,12 +1356,37 @@ resolveSelectStep(Walker * pWalker, Select * p)
 			sNC.ncFlags &= ~NC_AllowAgg;
 		}
 
-		/* If a HAVING clause is present, then there must be a GROUP BY clause.
+		/*
+		 * If a HAVING clause is present, then there must
+		 * be a GROUP BY clause or aggregate function
+		 * should be specified.
 		 */
-		if (p->pHaving && !pGroupBy) {
-			sqlite3ErrorMsg(pParse,
-					"a GROUP BY clause is required before HAVING");
-			return WRC_Abort;
+		if (p->pHaving != NULL && pGroupBy == NULL) {
+			struct NameContext having_nc;
+			memset(&having_nc, 0, sizeof(having_nc));
+			having_nc.pParse = pParse;
+			having_nc.ncFlags = NC_AllowAgg;
+			having_nc.pSrcList = p->pSrc;
+			if (is_all_select_agg &&
+			    sqlite3ResolveExprNames(&having_nc,
+						    p->pHaving) != 0)
+				return WRC_Abort;
+			if ((having_nc.ncFlags & NC_HasAgg) == 0 ||
+			    (having_nc.ncFlags & NC_HasUnaggregatedId) != 0) {
+				const char *err_msg =
+					tt_sprintf("HAVING argument must "
+						   "appear in the GROUP BY "
+						   "clause or be used in an "
+						   "aggregate function");
+				diag_set(ClientError, ER_SQL, err_msg);
+				pParse->nErr++;
+				pParse->rc = SQL_TARANTOOL_ERROR;
+				return WRC_Abort;
+			}
+			sql_expr_delete(db, p->pLimit, false);
+			p->pLimit =
+			    sqlite3ExprAlloc(db, TK_INTEGER,
+					     &sqlite3IntTokens[1], 0);
 		}
 
 		/* Add the output column list to the name-context before parsing the
