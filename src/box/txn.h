@@ -113,6 +113,12 @@ struct sql_txn {
 	/** List of active SQL savepoints. */
 	struct Savepoint *pSavepoint;
 	/**
+	 * Changes have been made in current transaction.
+	 * It is needed to handle outer SQL function
+	 * total_changes().
+	 */
+	uint32_t change_count;
+	/**
 	 * This variables transfer deferred constraints from one
 	 * VDBE to the next in the same transaction.
 	 */

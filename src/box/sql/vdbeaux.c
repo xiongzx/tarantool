@@ -85,6 +85,7 @@ sql_alloc_txn()
 		return NULL;
 	}
 	txn->pSavepoint = NULL;
+	txn->change_count = 0;
 	txn->fk_deferred_count = 0;
 	return txn;
 }
@@ -2270,30 +2271,27 @@ sql_txn_begin(Vdbe *p)
 	return 0;
 }
 
-Savepoint *
-sql_savepoint(MAYBE_UNUSED Vdbe *p, const char *zName)
+struct Savepoint *
+sql_savepoint_create(const char *name, uint32_t change_count)
 {
-	assert(p);
-	size_t nName = zName ? strlen(zName) + 1 : 0;
-	size_t savepoint_sz = sizeof(Savepoint) + nName;
-	Savepoint *pNew;
-
-	pNew = (Savepoint *)region_aligned_alloc(&fiber()->gc,
-						 savepoint_sz,
-						 alignof(Savepoint));
-	if (pNew == NULL) {
-		diag_set(OutOfMemory, savepoint_sz, "region",
-			 "savepoint");
+	size_t name_len = name != NULL ? strlen(name) + 1 : 0;
+	size_t savepoint_sz = sizeof(struct Savepoint) + name_len;
+	struct Savepoint *savepoint =
+		(struct Savepoint *) region_alloc(&fiber()->gc, savepoint_sz);
+	if (savepoint == NULL) {
+		diag_set(OutOfMemory, savepoint_sz, "region", "savepoint");
 		return NULL;
 	}
-	pNew->tnt_savepoint = box_txn_savepoint();
-	if (!pNew->tnt_savepoint)
+	savepoint->tnt_savepoint = box_txn_savepoint();
+	if (savepoint->tnt_savepoint == NULL)
 		return NULL;
-	if (zName) {
-		pNew->zName = (char *)&pNew[1];
-		memcpy(pNew->zName, zName, nName);
-	};
-	return pNew;
+	savepoint->change_count = change_count;
+	if (name != NULL) {
+		/* Name is placed right after structure itself. */
+		savepoint->zName = (char *) &savepoint[1];
+		memcpy(savepoint->zName, name, name_len);
+	}
+	return savepoint;
 }
 
 /*
@@ -2472,18 +2470,25 @@ sqlite3VdbeHalt(Vdbe * p)
 				p->nChange = 0;
 			}
 		}
-
-		/* If this was an INSERT, UPDATE or DELETE and no statement transaction
-		 * has been rolled back, update the database connection change-counter.
+		/*
+		 * Update the database change-counter on DML
+		 * requests. Total changes counter is updated only
+		 * at the end of committed transaction or in
+		 * auto-commit mode. Otherwise, we transfer local
+		 * counter to the next VDBE. Also, we don't need
+		 * to even try to calculate change counter on
+		 * EXPLAIN queries.
 		 */
-		if (p->changeCntOn) {
-			if (eStatementOp != SAVEPOINT_ROLLBACK) {
-				sqlite3VdbeSetChanges(db, p->nChange);
+		if (p->changeCntOn && !p->explain) {
+			db->nChange = p->nChange;
+			if (p->auto_commit) {
+				db->nTotalChange += p->nChange;
 			} else {
-				sqlite3VdbeSetChanges(db, 0);
+				assert(p->psql_txn != NULL);
+				p->psql_txn->change_count += p->nChange;
 			}
-			p->nChange = 0;
 		}
+		p->nChange = 0;
 	}
 
 	closeCursorsAndFree(p);
@@ -3437,17 +3442,6 @@ sqlite3MemCompare(const Mem * pMem1, const Mem * pMem2, const struct coll * pCol
 
 	/* Both values must be blobs.  Compare using memcmp().  */
 	return sqlite3BlobCompare(pMem1, pMem2);
-}
-
-/*
- * This routine sets the value to be returned by subsequent calls to
- * sqlite3_changes() on the database handle 'db'.
- */
-void
-sqlite3VdbeSetChanges(sqlite3 * db, int nChange)
-{
-	db->nChange = nChange;
-	db->nTotalChange += nChange;
 }
 
 /*

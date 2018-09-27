@@ -1758,6 +1758,8 @@ struct Savepoint {
 	box_txn_savepoint_t *tnt_savepoint; /* Tarantool's savepoint struct */
 	char *zName;		/* Savepoint name (nul-terminated) */
 	Savepoint *pNext;	/* Parent savepoint (if any) */
+	/** Changes to db made since last START TRANSACTION. */
+	uint32_t change_count;
 };
 
 /*
@@ -4301,7 +4303,6 @@ Expr *sqlite3ExprAddCollateToken(Parse * pParse, Expr *, const Token *, int);
 Expr *sqlite3ExprAddCollateString(Parse *, Expr *, const char *);
 Expr *sqlite3ExprSkipCollate(Expr *);
 int sqlite3CheckIdentifierName(Parse *, char *);
-void sqlite3VdbeSetChanges(sqlite3 *, int);
 int sqlite3AddInt64(i64 *, i64);
 int sqlite3SubInt64(i64 *, i64);
 int sqlite3MulInt64(i64 *, i64);

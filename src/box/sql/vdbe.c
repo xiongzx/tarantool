@@ -988,7 +988,6 @@ case OP_Halt: {
 		pFrame = p->pFrame;
 		p->pFrame = pFrame->pParent;
 		p->nFrame--;
-		sqlite3VdbeSetChanges(db, p->nChange);
 		pcx = sqlite3VdbeFrameRestore(pFrame);
 		if (pOp->p2 == ON_CONFLICT_ACTION_IGNORE) {
 			/* Instruction pcx is the OP_Program that invoked the sub-program
@@ -2881,7 +2880,7 @@ case OP_Savepoint: {
 
 	if (p1==SAVEPOINT_BEGIN) {
 		/* Create a new savepoint structure. */
-		pNew = sql_savepoint(p, zName);
+		pNew = sql_savepoint_create(zName, psql_txn->change_count);
 		/* Link the new savepoint into the database handle's list. */
 		pNew->pNext = psql_txn->pSavepoint;
 		psql_txn->pSavepoint = pNew;
@@ -2929,6 +2928,17 @@ case OP_Savepoint: {
 				 * Since savepoints are stored in region, we do not
 				 * have to destroy them
 				 */
+			}
+			if (p1 == SAVEPOINT_ROLLBACK) {
+				/*
+				 * On savepoint rollback we should
+				 * discard all changes made after
+				 * it.
+				 */
+				assert(psql_txn->pSavepoint != NULL);
+				psql_txn->change_count =
+					psql_txn->pSavepoint->change_count;
+				p->nChange = 0;
 			}
 
 			/* If it is a RELEASE, then destroy the savepoint being operated on
@@ -3000,6 +3010,18 @@ case OP_TransactionCommit: {
 			rc = SQL_TARANTOOL_ERROR;
 			goto abort_due_to_error;
 		}
+		/*
+		 * On commit we should account all changes made
+		 * in current transaction i.e. changes occurred
+		 * within processing current statement plus
+		 * changes happen in transaction. Moreover, we
+		 * nullify local changes since <COMMIT> statement
+		 * doesn't really provide any changes, it only
+		 * accounts already made changes.
+		 */
+		assert(p->psql_txn != NULL);
+		db->nTotalChange += p->psql_txn->change_count + p->nChange;
+		db->nChange = 0;
 	} else {
 		sqlite3VdbeError(p, "cannot commit - no transaction is active");
 		rc = SQLITE_ERROR;
@@ -3019,6 +3041,19 @@ case OP_TransactionRollback: {
 			rc = SQL_TARANTOOL_ERROR;
 			goto abort_due_to_error;
 		}
+		/*
+		 * On rollback all changed made in current
+		 * transaction should not be accounted.
+		 * We don't care about local VDBE change
+		 * counter since it will be wasted anyway:
+		 * OP_TransactionRollback usually is the only
+		 * (meaningful) opcode in program which implements
+		 * SQL statement <START TRANSACTION>. We also
+		 * don't care about total changes counter
+		 * because it is incremented only on transaction
+		 * commit or at the end of VDBE execution.
+		 */
+		db->nChange = 0;
 	} else {
 		sqlite3VdbeError(p, "cannot rollback - no "
 				    "transaction is active");
@@ -3045,7 +3080,10 @@ case OP_TTransaction: {
 			goto abort_due_to_error;
 		}
 	} else {
-		p->anonymous_savepoint = sql_savepoint(p, NULL);
+		assert(p->psql_txn != NULL);
+		uint32_t change_count = p->psql_txn->change_count;
+		p->anonymous_savepoint = sql_savepoint_create(NULL,
+							      change_count);
 		if (p->anonymous_savepoint == NULL) {
 			rc = SQL_TARANTOOL_ERROR;
 			goto abort_due_to_error;
@@ -3806,15 +3844,13 @@ case OP_Delete: {
 
 	break;
 }
+
 /* Opcode: ResetCount * * * * *
  *
- * The value of the change counter is copied to the database handle
- * change counter (returned by subsequent calls to sqlite3_changes()).
- * Then the VMs internal change counter resets to 0.
+ * This routine resets VMs internal change counter to 0.
  * This is used by trigger programs.
  */
 case OP_ResetCount: {
-	sqlite3VdbeSetChanges(db, p->nChange);
 	p->nChange = 0;
 	p->ignoreRaised = 0;
 	break;
@@ -4266,8 +4302,6 @@ case OP_IdxReplace:
 case OP_IdxInsert: {
 	pIn2 = &aMem[pOp->p1];
 	assert((pIn2->flags & MEM_Blob) != 0);
-	if (pOp->p5 & OPFLAG_NCHANGE)
-		p->nChange++;
 	rc = ExpandBlob(pIn2);
 	if (rc != 0)
 		goto abort_due_to_error;
@@ -4293,6 +4327,9 @@ case OP_IdxInsert: {
 	}
 
 	if (pOp->p5 & OPFLAG_OE_IGNORE) {
+		/* Compensate nChange increment. */
+		if (rc != SQLITE_OK)
+			p->nChange--;
 		/* Ignore any kind of failes and do not raise error message */
 		rc = SQLITE_OK;
 		/* If we are in trigger, increment ignore raised counter */
@@ -4305,6 +4342,8 @@ case OP_IdxInsert: {
 	}
 	if (rc != 0)
 		goto abort_due_to_error;
+	if (pOp->p5 & OPFLAG_NCHANGE)
+		p->nChange++;
 	break;
 }
 
