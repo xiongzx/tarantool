@@ -1,7 +1,9 @@
 #include "json/path.h"
+#include "json/tree.h"
 #include "unit.h"
 #include "trivia/util.h"
 #include <string.h>
+#include <stdbool.h>
 
 #define reset_to_new_path(value) \
 	path = value; \
@@ -159,14 +161,228 @@ test_errors()
 	footer();
 }
 
+struct test_struct {
+	int value;
+	struct json_tree_entry tree_node;
+};
+
+struct test_struct *
+test_add_path(struct json_tree *tree, const char *path, uint32_t path_len,
+	      struct test_struct *records_pool, int *pool_idx)
+{
+	int rc;
+	struct json_path_parser parser;
+	struct json_path_node path_node;
+	struct json_tree_entry *parent = &tree->root;
+	json_path_parser_create(&parser, path, path_len);
+	while ((rc = json_path_next(&parser, &path_node)) == 0 &&
+		path_node.type != JSON_PATH_END) {
+		uint32_t rolling_hash =
+			json_path_fragment_hash(&path_node,
+						parent->rolling_hash);
+		struct json_tree_entry *new_node =
+			json_tree_lookup_by_path_node(tree, parent, &path_node,
+						      rolling_hash);
+		if (new_node == NULL) {
+			new_node = &records_pool[*pool_idx].tree_node;
+			*pool_idx = *pool_idx + 1;
+			json_tree_node_create(new_node, &path_node);
+			rc = json_tree_add(tree, parent, new_node,
+					   rolling_hash);
+			fail_if(rc != 0);
+		}
+		parent = new_node;
+	}
+	fail_if(rc != 0 || path_node.type != JSON_PATH_END);
+	return json_tree_entry_container_safe(parent, struct test_struct, tree_node);
+}
+
+void
+test_tree()
+{
+	header();
+	plan(36);
+
+	struct json_tree tree;
+	int rc = json_tree_create(&tree);
+	fail_if(rc != 0);
+
+	struct test_struct records[6];
+	for (int i = 0; i < 6; i++)
+		records[i].value = i;
+
+	const char *path1 = "[1][10]";
+	const char *path2 = "[1][20].file";
+	const char *path3_to_remove = "[2]";
+	const char *path_unregistered = "[1][3]";
+
+	int records_idx = 1;
+	struct test_struct *node;
+	node = test_add_path(&tree, path1, strlen(path1), records,
+			     &records_idx);
+	is(node, &records[2], "add path '%s'", path1);
+
+	node = test_add_path(&tree, path2, strlen(path2), records,
+			     &records_idx);
+	is(node, &records[4], "add path '%s'", path2);
+
+	node = json_tree_lookup_entry(&tree, &tree.root, path1, strlen(path1),
+				      struct test_struct, tree_node);
+	is(node, &records[2], "lookup path '%s'", path1);
+
+	node = json_tree_lookup_entry(&tree, &tree.root, path2, strlen(path2),
+				      struct test_struct, tree_node);
+	is(node, &records[4], "lookup path '%s'", path2);
+
+	node = json_tree_lookup_entry(&tree, &tree.root, path_unregistered,
+				      strlen(path_unregistered),
+				      struct test_struct, tree_node);
+	is(node, NULL, "lookup unregistered path '%s'", path_unregistered);
+
+	node = test_add_path(&tree, path3_to_remove, strlen(path3_to_remove),
+			     records, &records_idx);
+	is(node, &records[5], "add path to remove '%s'", path3_to_remove);
+	if (node != NULL) {
+		uint32_t rolling_hash =
+			json_path_fragment_hash(&node->tree_node.key,
+						tree.root.rolling_hash);
+		json_tree_remove(&tree, &tree.root, &node->tree_node,
+				 rolling_hash);
+		json_tree_node_destroy(&node->tree_node);
+	} else {
+		isnt(node, NULL, "can't remove empty node!");
+	}
+
+	/* Test iterators. */
+	struct json_tree_entry *tree_record = NULL;
+	const struct json_tree_entry *tree_nodes_preorder[] =
+		{&records[1].tree_node, &records[2].tree_node,
+		 &records[3].tree_node, &records[4].tree_node};
+	int cnt = sizeof(tree_nodes_preorder)/sizeof(tree_nodes_preorder[0]);
+	int idx = 0;
+
+	json_tree_foreach_preorder(tree_record, &tree.root) {
+		if (idx >= cnt)
+			break;
+		struct test_struct *t1 =
+			json_tree_entry_container(tree_record,
+						  struct test_struct,
+						  tree_node);
+		struct test_struct *t2 =
+			json_tree_entry_container(tree_nodes_preorder[idx],
+						  struct test_struct,
+						  tree_node);
+		is(tree_record, tree_nodes_preorder[idx],
+		   "test foreach pre order %d: have %d expected of %d",
+		   idx, t1->value, t2->value);
+		++idx;
+	}
+	is(idx, cnt, "records iterated count %d of %d", idx, cnt);
+
+	const struct json_tree_entry *tree_nodes_postorder[] =
+		{&records[2].tree_node, &records[4].tree_node,
+		 &records[3].tree_node, &records[1].tree_node};
+	cnt = sizeof(tree_nodes_postorder)/sizeof(tree_nodes_postorder[0]);
+	idx = 0;
+	json_tree_foreach_postorder(tree_record, &tree.root) {
+		if (idx >= cnt)
+			break;
+		struct test_struct *t1 =
+			json_tree_entry_container(tree_record,
+						  struct test_struct,
+						  tree_node);
+		struct test_struct *t2 =
+			json_tree_entry_container(tree_nodes_postorder[idx],
+						  struct test_struct,
+						  tree_node);
+		is(tree_record, tree_nodes_postorder[idx],
+		   "test foreach post order %d: have %d expected of %d",
+		   idx, t1->value, t2->value);
+		++idx;
+	}
+	is(idx, cnt, "records iterated count %d of %d", idx, cnt);
+
+	idx = 0;
+	json_tree_foreach_safe(tree_record, &tree.root) {
+		if (idx >= cnt)
+			break;
+		struct test_struct *t1 =
+			json_tree_entry_container(tree_record,
+						  struct test_struct,
+						  tree_node);
+		struct test_struct *t2 =
+			json_tree_entry_container(tree_nodes_postorder[idx],
+						  struct test_struct,
+						  tree_node);
+		is(tree_record, tree_nodes_postorder[idx],
+		   "test foreach safe order %d: have %d expected of %d",
+		   idx, t1->value, t2->value);
+		++idx;
+	}
+	is(idx, cnt, "records iterated count %d of %d", idx, cnt);
+
+	idx = 0;
+	json_tree_foreach_entry_preorder(node, &tree.root, struct test_struct,
+					 tree_node) {
+		if (idx >= cnt)
+			break;
+		struct test_struct *t =
+			json_tree_entry_container(tree_nodes_preorder[idx],
+						  struct test_struct,
+						  tree_node);
+		is(&node->tree_node, tree_nodes_preorder[idx],
+		   "test foreach entry pre order %d: have %d expected of %d",
+		   idx, node->value, t->value);
+		idx++;
+	}
+	is(idx, cnt, "records iterated count %d of %d", idx, cnt);
+
+	idx = 0;
+	json_tree_foreach_entry_postorder(node, &tree.root, struct test_struct,
+					  tree_node) {
+		if (idx >= cnt)
+			break;
+		struct test_struct *t =
+			json_tree_entry_container(tree_nodes_postorder[idx],
+						  struct test_struct,
+						  tree_node);
+		is(&node->tree_node, tree_nodes_postorder[idx],
+		   "test foreach entry post order %d: have %d expected of %d",
+		   idx, node->value, t->value);
+		idx++;
+	}
+	is(idx, cnt, "records iterated count %d of %d", idx, cnt);
+
+	idx = 0;
+	json_tree_foreach_entry_safe(node, &tree.root, struct test_struct,
+				     tree_node) {
+		if (idx >= cnt)
+			break;
+		struct test_struct *t =
+			json_tree_entry_container(tree_nodes_postorder[idx],
+						  struct test_struct,
+						  tree_node);
+		is(&node->tree_node, tree_nodes_postorder[idx],
+		   "test foreach entry safe order %d: have %d expected of %d",
+		   idx, node->value, t->value);
+		json_tree_node_destroy(&node->tree_node);
+		idx++;
+	}
+	is(idx, cnt, "records iterated count %d of %d", idx, cnt);
+
+	check_plan();
+	footer();
+}
+
 int
 main()
 {
 	header();
-	plan(2);
+	plan(3);
 
 	test_basic();
 	test_errors();
+	test_tree();
 
 	int rc = check_plan();
 	footer();
