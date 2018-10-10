@@ -935,15 +935,12 @@ tuple_field_raw_by_path(struct tuple_format *format, const char *tuple,
 		goto error;
 	switch(node.type) {
 	case JSON_PATH_NUM: {
-		int index = node.num;
-		if (index == 0) {
+		fieldno = node.num;
+		if (fieldno == 0) {
 			*field = NULL;
 			return 0;
 		}
-		index -= TUPLE_INDEX_BASE;
-		*field = tuple_field_raw(format, tuple, field_map, index);
-		if (*field == NULL)
-			return 0;
+		fieldno -= TUPLE_INDEX_BASE;
 		break;
 	}
 	case JSON_PATH_STR: {
@@ -960,9 +957,8 @@ tuple_field_raw_by_path(struct tuple_format *format, const char *tuple,
 			 */
 			name_hash = field_name_hash(node.str, node.len);
 		}
-		*field = tuple_field_raw_by_name(format, tuple, field_map,
-						 node.str, node.len, name_hash);
-		if (*field == NULL)
+		if (tuple_fieldno_by_name(format->dict, node.str, node.len,
+					  name_hash, &fieldno) != 0)
 			return 0;
 		break;
 	}
@@ -971,6 +967,24 @@ tuple_field_raw_by_path(struct tuple_format *format, const char *tuple,
 		*field = NULL;
 		return 0;
 	}
+	/* Optimize indexed JSON field data access. */
+	assert(field != NULL);
+	struct tuple_field *indexed_field =
+		unlikely(fieldno >= tuple_format_field_count(format)) ? NULL :
+		tuple_format_field_by_path(format,
+					   tuple_format_field(format, fieldno),
+					   path + parser.offset,
+					   path_len - parser.offset);
+	if (indexed_field != NULL &&
+	    indexed_field->offset_slot != TUPLE_OFFSET_SLOT_NIL) {
+		*field = tuple + field_map[indexed_field->offset_slot];
+		return 0;
+	}
+
+	/* No such field in index. Continue parsing JSON path. */
+	*field = tuple_field_raw(format, tuple, field_map, fieldno);
+	if (*field == NULL)
+		return 0;
 	rc = tuple_field_go_to_path(field, path + parser.offset,
 				    path_len - parser.offset);
 	if (rc == 0)
