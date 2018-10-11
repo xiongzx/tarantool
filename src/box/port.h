@@ -121,6 +121,7 @@ static_assert(sizeof(struct port_tuple) <= sizeof(struct port),
 	      "sizeof(struct port_tuple) must be <= sizeof(struct port)");
 
 extern const struct port_vtab port_tuple_vtab;
+extern const struct port_vtab port_tuple_to_lua_vtab;
 
 /**
  * Convert an abstract port instance to a tuple port.
@@ -128,7 +129,8 @@ extern const struct port_vtab port_tuple_vtab;
 static inline struct port_tuple *
 port_tuple(struct port *port)
 {
-	assert(port->vtab == &port_tuple_vtab);
+	assert(port->vtab == &port_tuple_vtab ||
+	       port->vtab == &port_tuple_to_lua_vtab);
 	return (struct port_tuple *)port;
 }
 
@@ -164,6 +166,10 @@ static_assert(sizeof(struct port_lua_to_obuf) <= sizeof(struct port),
 void
 port_lua_to_obuf_create(struct port *port, struct lua_State *L);
 
+/** Initialize a port to dump tuples to Lua. */
+void
+port_tuple_to_lua_create(struct port *port);
+
 /**
  * Destroy an abstract port instance.
  */
@@ -187,6 +193,7 @@ port_dump_16(struct port *port, void *out);
 /**
  * Dump a port content as a plain text into a buffer,
  * allocated inside.
+ * @param port Port with data to dump.
  * @param port Port with data to dump.
  * @param[out] size Length of a result plain text.
  *

@@ -60,19 +60,6 @@ lbox_encode_tuple_on_gc(lua_State *L, int idx, size_t *p_len)
 
 /** {{{ Lua/C implementation of index:select(): used only by Vinyl **/
 
-static inline void
-lbox_port_to_table(lua_State *L, struct port *port_base)
-{
-	struct port_tuple *port = port_tuple(port_base);
-	lua_createtable(L, port->size, 0);
-	struct port_tuple_entry *entry = port->first;
-	for (int i = 0 ; i < port->size; i++) {
-		luaT_pushtuple(L, entry->tuple);
-		lua_rawseti(L, -2, i + 1);
-		entry = entry->next;
-	}
-}
-
 static int
 lbox_select(lua_State *L)
 {
@@ -92,22 +79,12 @@ lbox_select(lua_State *L)
 	const char *key = lbox_encode_tuple_on_gc(L, 6, &key_len);
 
 	struct port port;
-	port_tuple_create(&port);
+	port_tuple_to_lua_create(&port);
 	if (box_select(space_id, index_id, iterator, offset, limit,
 		       key, key + key_len, &port) != 0) {
 		return luaT_error(L);
 	}
-
-	/*
-	 * Lua may raise an exception during allocating table or pushing
-	 * tuples. In this case `port' definitely will leak. It is possible to
-	 * wrap lbox_port_to_table() to pcall(), but it was too expensive
-	 * for this binding according to our benchmarks (~5% decrease).
-	 * However, we tried to simulate this situation and LuaJIT finalizers
-	 * table always crashed the first (can't be fixed with pcall).
-	 * https://github.com/tarantool/tarantool/issues/1182
-	 */
-	lbox_port_to_table(L, &port);
+	port_dump(&port, L);
 	port_destroy(&port);
 	return 1; /* lua table with tuples */
 }
