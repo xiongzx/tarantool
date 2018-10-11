@@ -284,6 +284,9 @@ error:
 				return -1;
 		} else {
 			request->sql_text = value;
+			request->sql_text =
+				mp_decode_str(&request->sql_text,
+					      &request->sql_text_len);
 		}
 	}
 	if (request->sql_text == NULL) {
@@ -580,8 +583,7 @@ sql_prepare_and_execute(const struct sql_request *request,
 			struct sql_response *response, struct region *region)
 {
 	const char *sql = request->sql_text;
-	uint32_t len;
-	sql = mp_decode_str(&sql, &len);
+	uint32_t len = request->sql_text_len;
 	struct sqlite3_stmt *stmt;
 	sqlite3 *db = sql_get();
 	if (db == NULL) {
