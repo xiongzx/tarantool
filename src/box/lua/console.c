@@ -378,10 +378,11 @@ console_session_fd(struct session *session)
  * @retval NULL Error.
  */
 const char *
-port_lua_dump_plain(struct port *port, uint32_t *size)
+port_lua_to_obuf_dump_plain(struct port *port, uint32_t *size)
 {
-	struct port_lua *port_lua = (struct port_lua *) port;
-	struct lua_State *L = port_lua->L;
+	struct port_lua_to_obuf *port_lua_to_obuf =
+		(struct port_lua_to_obuf *) port;
+	struct lua_State *L = port_lua_to_obuf->L;
 	int rc = lua_yaml_encode(L, luaL_yaml_default, "!push!",
 				 "tag:tarantool.io/push,2018");
 	if (rc == 2) {

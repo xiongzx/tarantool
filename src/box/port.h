@@ -67,16 +67,16 @@ struct port;
 
 struct port_vtab {
 	/**
-	 * Dump the content of a port to an output buffer.
+	 * Dump the content of a port to an abstract output buffer.
 	 * On success returns number of entries dumped.
 	 * On failure sets diag and returns -1.
 	 */
-	int (*dump_msgpack)(struct port *port, struct obuf *out);
+	int (*dump)(struct port *port, void *out);
 	/**
-	 * Same as dump_msgpack(), but use the legacy Tarantool
+	 * Same as dump(), but use the legacy Tarantool
 	 * 1.6 format.
 	 */
-	int (*dump_msgpack_16)(struct port *port, struct obuf *out);
+	int (*dump_16)(struct port *port, void *out);
 	/**
 	 * Dump a port content as a plain text into a buffer,
 	 * allocated inside.
@@ -145,7 +145,7 @@ int
 port_tuple_add(struct port *port, struct tuple *tuple);
 
 /** Port for storing the result of a Lua CALL/EVAL. */
-struct port_lua {
+struct port_lua_to_obuf {
 	const struct port_vtab *vtab;
 	/** Lua state that stores the result. */
 	struct lua_State *L;
@@ -157,12 +157,12 @@ struct port_lua {
 	int size;
 };
 
-static_assert(sizeof(struct port_lua) <= sizeof(struct port),
-	      "sizeof(struct port_lua) must be <= sizeof(struct port)");
+static_assert(sizeof(struct port_lua_to_obuf) <= sizeof(struct port),
+	      "sizeof(struct port_lua_to_obuf) must be <= sizeof(struct port)");
 
 /** Initialize a port to dump from Lua. */
 void
-port_lua_create(struct port *port, struct lua_State *L);
+port_lua_to_obuf_create(struct port *port, struct lua_State *L);
 
 /**
  * Destroy an abstract port instance.
@@ -175,14 +175,14 @@ port_destroy(struct port *port);
  * Return number of entries dumped on success, -1 on error.
  */
 int
-port_dump_msgpack(struct port *port, struct obuf *out);
+port_dump(struct port *port, void *out);
 
 /**
  * Same as port_dump(), but use the legacy Tarantool 1.6
  * format.
  */
 int
-port_dump_msgpack_16(struct port *port, struct obuf *out);
+port_dump_16(struct port *port, void *out);
 
 /**
  * Dump a port content as a plain text into a buffer,
