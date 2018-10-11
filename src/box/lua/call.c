@@ -416,7 +416,6 @@ port_lua_to_obuf_destroy(struct port *base)
 	assert(port->vtab == &port_lua_to_obuf_vtab);
 	luaL_unref(tarantool_L, LUA_REGISTRYINDEX, port->ref);
 }
-
 /**
  * Dump port lua as a YAML document. It is extern since depends on
  * lyaml module.
@@ -429,6 +428,53 @@ static const struct port_vtab port_lua_to_obuf_vtab = {
 	.dump_16 = port_lua_to_obuf_dump_16,
 	.dump_plain = port_lua_to_obuf_dump_plain,
 	.destroy = port_lua_to_obuf_destroy,
+};
+
+void
+port_tuple_to_lua_create(struct port *port)
+{
+	struct port_tuple *port_tuple = (struct port_tuple *) port;
+	memset(port_tuple, 0, sizeof(*port_tuple));
+	port_tuple->vtab = &port_tuple_to_lua_vtab;
+}
+
+static void
+port_tuple_to_lua_destroy(struct port *base)
+{
+	struct port_tuple *port = (struct port_tuple *)base;
+	assert(port->vtab == &port_tuple_to_lua_vtab);
+}
+
+/*
+* Routine to dump tuples to Lua stack.
+* Lua may raise an exception during allocating table or pushing
+* tuples. In this case `port' definitely will leak. It is possible to
+* wrap lbox_port_to_table() to pcall(), but it was too expensive
+* for this binding according to our benchmarks (~5% decrease).
+* However, we tried to simulate this situation and LuaJIT finalizers
+* table always crashed the first (can't be fixed with pcall).
+* https://github.com/tarantool/tarantool/issues/1182
+*/
+static inline int
+port_tuple_to_lua_dump(struct port *port_base, void *ctx)
+{
+	lua_State *L = ctx;
+	struct port_tuple *port = port_tuple(port_base);
+	lua_createtable(L, port->size, 0);
+	struct port_tuple_entry *entry = port->first;
+	for (int i = 0 ; i < port->size; i++) {
+		luaT_pushtuple(L, entry->tuple);
+		lua_rawseti(L, -2, i + 1);
+		entry = entry->next;
+	}
+	return 0;
+}
+
+const struct port_vtab port_tuple_to_lua_vtab = {
+	.dump = port_tuple_to_lua_dump,
+	.dump_16 = NULL,
+	.dump_plain = NULL,
+	.destroy = port_tuple_to_lua_destroy,
 };
 
 static inline int
