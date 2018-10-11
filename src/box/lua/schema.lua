@@ -93,6 +93,9 @@ ffi.cdef[[
     };
 
     void
+    port_tuple_create(struct port *port);
+
+    void
     port_destroy(struct port *port);
 
     int
@@ -1325,7 +1328,7 @@ base_index_mt.select_ffi = function(index, key, opts)
     local iterator, offset, limit = check_select_opts(opts, key + 1 >= key_end)
 
     local port = ffi.cast('struct port *', port_tuple)
-
+    builtin.port_tuple_create(port);
     if builtin.box_select(index.space_id, index.id,
         iterator, offset, limit, key, key_end, port) ~= 0 then
         return box.error()
