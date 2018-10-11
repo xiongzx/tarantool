@@ -1426,7 +1426,7 @@ tx_process_select(struct cmsg *m)
 	/*
 	 * SELECT output format has not changed since Tarantool 1.6
 	 */
-	count = port_dump_msgpack_16(&port, out);
+	count = port_dump_16(&port, out);
 	port_destroy(&port);
 	if (count < 0) {
 		/* Discard the prepared select. */
@@ -1513,9 +1513,9 @@ tx_process_call(struct cmsg *m)
 	}
 
 	if (msg->header.type == IPROTO_CALL_16)
-		count = port_dump_msgpack_16(&port, out);
+		count = port_dump_16(&port, out);
 	else
-		count = port_dump_msgpack(&port, out);
+		count = port_dump(&port, out);
 	port_destroy(&port);
 	if (count < 0) {
 		obuf_rollback_to_svp(out, &svp);
@@ -1943,7 +1943,7 @@ iproto_session_push(struct session *session, uint64_t sync, struct port *port)
 	struct obuf_svp svp;
 	if (iproto_prepare_select(con->tx.p_obuf, &svp) != 0)
 		return -1;
-	if (port_dump_msgpack(port, con->tx.p_obuf) < 0) {
+	if (port_dump(port, con->tx.p_obuf) < 0) {
 		obuf_rollback_to_svp(con->tx.p_obuf, &svp);
 		return -1;
 	}

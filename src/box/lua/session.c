@@ -386,7 +386,7 @@ lbox_session_push(struct lua_State *L)
 		return luaL_error(L, "Usage: box.session.push(data, sync)");
 	}
 	struct port port;
-	port_lua_create(&port, L);
+	port_lua_to_obuf_create(&port, L);
 	if (session_push(session, sync, &port) != 0) {
 		lua_pushnil(L);
 		luaT_pusherror(L, box_error_last());

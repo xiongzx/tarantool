@@ -263,20 +263,21 @@ luamp_encode_call_16(lua_State *L, struct luaL_serializer *cfg,
 	return root.size;
 }
 
-static const struct port_vtab port_lua_vtab;
+static const struct port_vtab port_lua_to_obuf_vtab;
 
 void
-port_lua_create(struct port *port, struct lua_State *L)
+port_lua_to_obuf_create(struct port *port, struct lua_State *L)
 {
-	struct port_lua *port_lua = (struct port_lua *) port;
-	memset(port_lua, 0, sizeof(*port_lua));
-	port_lua->vtab = &port_lua_vtab;
-	port_lua->L = L;
+	struct port_lua_to_obuf *port_lua_to_obuf =
+		(struct port_lua_to_obuf *) port;
+	memset(port_lua_to_obuf, 0, sizeof(*port_lua_to_obuf));
+	port_lua_to_obuf->vtab = &port_lua_to_obuf_vtab;
+	port_lua_to_obuf->L = L;
 	/*
 	 * Allow to destroy the port even if no ref.
 	 * @Sa luaL_unref.
 	 */
-	port_lua->ref = -1;
+	port_lua_to_obuf->ref = -1;
 }
 
 static int
@@ -335,7 +336,8 @@ execute_lua_eval(lua_State *L)
 static int
 encode_lua_call(lua_State *L)
 {
-	struct port_lua *port = (struct port_lua *) lua_topointer(L, -1);
+	struct port_lua_to_obuf *port =
+		(struct port_lua_to_obuf *) lua_topointer(L, -1);
 	/*
 	 * Add all elements from Lua stack to the buffer.
 	 *
@@ -357,7 +359,8 @@ encode_lua_call(lua_State *L)
 static int
 encode_lua_call_16(lua_State *L)
 {
-	struct port_lua *port = (struct port_lua *) lua_topointer(L, -1);
+	struct port_lua_to_obuf *port =
+		(struct port_lua_to_obuf *) lua_topointer(L, -1);
 	/*
 	 * Add all elements from Lua stack to the buffer.
 	 *
@@ -374,10 +377,10 @@ encode_lua_call_16(lua_State *L)
 }
 
 static inline int
-port_lua_do_dump(struct port *base, struct obuf *out, lua_CFunction handler)
+port_lua_to_obuf_do_dump(struct port *base, struct obuf *out, lua_CFunction handler)
 {
-	struct port_lua *port = (struct port_lua *)base;
-	assert(port->vtab == &port_lua_vtab);
+	struct port_lua_to_obuf *port = (struct port_lua_to_obuf *)base;
+	assert(port->vtab == &port_lua_to_obuf_vtab);
 	/* Use port to pass arguments to encoder quickly. */
 	port->out = out;
 	/*
@@ -395,22 +398,22 @@ port_lua_do_dump(struct port *base, struct obuf *out, lua_CFunction handler)
 }
 
 static int
-port_lua_dump(struct port *base, struct obuf *out)
+port_lua_to_obuf_dump(struct port *base, void *out)
 {
-	return port_lua_do_dump(base, out, encode_lua_call);
+	return port_lua_to_obuf_do_dump(base, out, encode_lua_call);
 }
 
 static int
-port_lua_dump_16(struct port *base, struct obuf *out)
+port_lua_to_obuf_dump_16(struct port *base, void *out)
 {
-	return port_lua_do_dump(base, out, encode_lua_call_16);
+	return port_lua_to_obuf_do_dump(base, out, encode_lua_call_16);
 }
 
 static void
-port_lua_destroy(struct port *base)
+port_lua_to_obuf_destroy(struct port *base)
 {
-	struct port_lua *port = (struct port_lua *)base;
-	assert(port->vtab == &port_lua_vtab);
+	struct port_lua_to_obuf *port = (struct port_lua_to_obuf *)base;
+	assert(port->vtab == &port_lua_to_obuf_vtab);
 	luaL_unref(tarantool_L, LUA_REGISTRYINDEX, port->ref);
 }
 
@@ -419,13 +422,13 @@ port_lua_destroy(struct port *base)
  * lyaml module.
  */
 extern const char *
-port_lua_dump_plain(struct port *port, uint32_t *size);
+port_lua_to_obuf_dump_plain(struct port *port, uint32_t *size);
 
-static const struct port_vtab port_lua_vtab = {
-	.dump_msgpack = port_lua_dump,
-	.dump_msgpack_16 = port_lua_dump_16,
-	.dump_plain = port_lua_dump_plain,
-	.destroy = port_lua_destroy,
+static const struct port_vtab port_lua_to_obuf_vtab = {
+	.dump = port_lua_to_obuf_dump,
+	.dump_16 = port_lua_to_obuf_dump_16,
+	.dump_plain = port_lua_to_obuf_dump_plain,
+	.destroy = port_lua_to_obuf_destroy,
 };
 
 static inline int
@@ -434,13 +437,13 @@ box_process_lua(struct call_request *request, struct port *base,
 {
 	lua_State *L = lua_newthread(tarantool_L);
 	int coro_ref = luaL_ref(tarantool_L, LUA_REGISTRYINDEX);
-	port_lua_create(base, L);
-	((struct port_lua *) base)->ref = coro_ref;
+	port_lua_to_obuf_create(base, L);
+	((struct port_lua_to_obuf *) base)->ref = coro_ref;
 
 	lua_pushcfunction(L, handler);
 	lua_pushlightuserdata(L, request);
 	if (luaT_call(L, 1, LUA_MULTRET) != 0) {
-		port_lua_destroy(base);
+		port_lua_to_obuf_destroy(base);
 		return -1;
 	}
 	return 0;
