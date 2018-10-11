@@ -92,6 +92,7 @@ lbox_select(lua_State *L)
 	const char *key = lbox_encode_tuple_on_gc(L, 6, &key_len);
 
 	struct port port;
+	port_tuple_create(&port);
 	if (box_select(space_id, index_id, iterator, offset, limit,
 		       key, key + key_len, &port) != 0) {
 		return luaT_error(L);

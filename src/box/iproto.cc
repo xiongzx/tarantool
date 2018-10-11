@@ -1412,6 +1412,7 @@ tx_process_select(struct cmsg *m)
 		goto error;
 
 	tx_inject_delay();
+	port_tuple_create(&port);
 	rc = box_select(req->space_id, req->index_id,
 			req->iterator, req->offset, req->limit,
 			req->key, req->key_end, &port);

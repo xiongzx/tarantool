@@ -20,6 +20,7 @@ ibuf_create
 ibuf_reinit
 ibuf_destroy
 ibuf_reserve_slow
+port_tuple_create
 port_destroy
 csv_create
 csv_destroy

@@ -1086,7 +1086,6 @@ box_select(uint32_t space_id, uint32_t index_id,
 	int rc = 0;
 	uint32_t found = 0;
 	struct tuple *tuple;
-	port_tuple_create(port);
 	while (found < limit) {
 		rc = iterator_next(it, &tuple);
 		if (rc != 0 || tuple == NULL)
