@@ -34,6 +34,7 @@
 #include "key_def.h"
 #include "field_def.h"
 #include "errinj.h"
+#include "json/tree.h"
 #include "tuple_dictionary.h"
 
 #if defined(__cplusplus)
@@ -113,6 +114,8 @@ struct tuple_field {
 	struct coll *coll;
 	/** Collation identifier. */
 	uint32_t coll_id;
+	/** An JSON tree entry to organize tree. */
+	struct json_tree_entry tree_entry;
 };
 
 /**
@@ -166,15 +169,30 @@ struct tuple_format {
 	 * index_field_count <= min_field_count <= field_count.
 	 */
 	uint32_t min_field_count;
-	/* Length of 'fields' array. */
-	uint32_t field_count;
 	/**
 	 * Shared names storage used by all formats of a space.
 	 */
 	struct tuple_dictionary *dict;
-	/* Formats of the fields */
-	struct tuple_field fields[0];
+	/** JSON tree of fields. */
+	struct json_tree field_tree;
 };
+
+
+static inline uint32_t
+tuple_format_field_count(const struct tuple_format *format)
+{
+	return format->field_tree.root.child_count;
+}
+
+static inline struct tuple_field *
+tuple_format_field(struct tuple_format *format, uint32_t fieldno)
+{
+	assert(fieldno < tuple_format_field_count(format));
+	struct json_tree_entry *tree_entry =
+		format->field_tree.root.children[fieldno];
+	return json_tree_entry_container(tree_entry, struct tuple_field,
+					 tree_entry);
+}
 
 extern struct tuple_format **tuple_formats;
 
@@ -238,8 +256,8 @@ tuple_format_new(struct tuple_format_vtab *vtab, struct key_def * const *keys,
  * @retval True, if @a format1 can store any tuples of @a format2.
  */
 bool
-tuple_format1_can_store_format2_tuples(const struct tuple_format *format1,
-				       const struct tuple_format *format2);
+tuple_format1_can_store_format2_tuples(struct tuple_format *format1,
+				       struct tuple_format *format2);
 
 /**
  * Calculate minimal field count of tuples with specified keys and
@@ -333,7 +351,9 @@ tuple_field_raw(const struct tuple_format *format, const char *tuple,
 			return tuple;
 		}
 
-		int32_t offset_slot = format->fields[field_no].offset_slot;
+		int32_t offset_slot =
+			tuple_format_field((struct tuple_format *)format,
+					   field_no)->offset_slot;
 		if (offset_slot != TUPLE_OFFSET_SLOT_NIL) {
 			if (field_map[offset_slot] != 0)
 				return tuple + field_map[offset_slot];
