@@ -223,6 +223,7 @@ struct errcode_record {
 	/*168 */_(ER_DROP_FK_CONSTRAINT,	"Failed to drop foreign key constraint '%s': %s") \
 	/*169 */_(ER_NO_SUCH_CONSTRAINT,	"Constraint %s does not exist") \
 	/*170 */_(ER_CONSTRAINT_EXISTS,		"Constraint %s already exists") \
+	/*171 */_(ER_ILLEGAL_COLLATION_MIX,	"Illegal mix of collations") \
 
 /*
  * !IMPORTANT! Please follow instructions at start of the file
