@@ -42,4 +42,12 @@ cn = remote.connect(box.cfg.listen)
 cn:execute('select 1 limit ? collate not_exist', {1})
 
 cn:close()
+
+-- Explicitly set BINARY collation has ID.
+--
+box.sql.execute("CREATE TABLE t (id INT PRIMARY KEY, a TEXT, b TEXT COLLATE BINARY);")
+box.space.T:format()[2]['collation']
+box.space.T:format()[3]['collation']
+box.sql.execute("DROP TABLE t;")
+
 box.schema.user.revoke('guest', 'read,write,execute', 'universe')

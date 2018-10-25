@@ -42,8 +42,12 @@
 struct coll *
 sql_get_coll_seq(Parse *parser, const char *name, uint32_t *coll_id)
 {
-	if (name == NULL || strcasecmp(name, "binary") == 0) {
+	if (name == NULL) {
 		*coll_id = COLL_NONE;
+		return NULL;
+	}
+	if (strcasecmp(name, "binary") == 0) {
+		*coll_id = COLL_BINARY;
 		return NULL;
 	}
 	struct coll_id *p = coll_by_name(name, strlen(name));

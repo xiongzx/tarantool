@@ -67,7 +67,7 @@ tuple_format_create(struct tuple_format *format, struct key_def * const *keys,
 		format->fields[i].nullable_action = fields[i].nullable_action;
 		struct coll *coll = NULL;
 		uint32_t cid = fields[i].coll_id;
-		if (cid != COLL_NONE) {
+		if (! coll_is_missing(cid)) {
 			struct coll_id *coll_id = coll_by_id(cid);
 			if (coll_id == NULL) {
 				diag_set(ClientError,ER_WRONG_COLLATION_OPTIONS,

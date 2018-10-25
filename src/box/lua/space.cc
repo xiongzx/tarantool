@@ -299,7 +299,7 @@ lbox_fillspace(struct lua_State *L, struct space *space, int i)
 			lua_pushboolean(L, key_part_is_nullable(part));
 			lua_setfield(L, -2, "is_nullable");
 
-			if (part->coll_id != COLL_NONE) {
+			if (! coll_is_missing(part->coll_id)) {
 				struct coll_id *coll_id =
 					coll_by_id(part->coll_id);
 				assert(coll_id != NULL);

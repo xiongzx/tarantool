@@ -78,6 +78,23 @@ extern const struct key_part_def key_part_def_default;
  */
 #define COLL_NONE UINT32_MAX
 
+/**
+ * In SQL explicitly specified binary collation and absence of
+ * any collation are different in behaviour: according to ANSI
+ * it is prohibited to compare strings with different explicitly
+ * indicated collations. However, if one of collation is default,
+ * (i.e. absent) the second one will be forced.
+ * So, lets introduce another id to indicate explicitly specified
+ * binary collation.
+ */
+#define COLL_BINARY (UINT32_MAX - 1)
+
+static inline bool
+coll_is_missing(uint32_t coll_id)
+{
+	return coll_id == COLL_NONE || coll_id == COLL_BINARY;
+}
+
 /** Descriptor of a single part in a multipart key. */
 struct key_part {
 	/** Tuple field index for this part */

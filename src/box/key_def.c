@@ -174,7 +174,7 @@ key_def_new(const struct key_part_def *parts, uint32_t part_count)
 	for (uint32_t i = 0; i < part_count; i++) {
 		const struct key_part_def *part = &parts[i];
 		struct coll *coll = NULL;
-		if (part->coll_id != COLL_NONE) {
+		if (! coll_is_missing(part->coll_id)) {
 			struct coll_id *coll_id = coll_by_id(part->coll_id);
 			if (coll_id == NULL) {
 				diag_set(ClientError, ER_WRONG_INDEX_OPTIONS,
