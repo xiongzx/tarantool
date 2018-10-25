@@ -955,7 +955,7 @@ static const struct space_vtab memtx_space_vtab = {
 
 struct space *
 memtx_space_new(struct memtx_engine *memtx,
-		struct space_def *def, struct rlist *key_list)
+		struct space_def *def, struct rlist *key_list, uint64_t epoch)
 {
 	struct memtx_space *memtx_space = malloc(sizeof(*memtx_space));
 	if (memtx_space == NULL) {
@@ -981,7 +981,8 @@ memtx_space_new(struct memtx_engine *memtx,
 
 	struct tuple_format *format =
 		tuple_format_new(&memtx_tuple_format_vtab, keys, key_count,
-				 def->fields, def->field_count, def->dict);
+				 def->fields, def->field_count, def->dict,
+				 epoch);
 	if (format == NULL) {
 		free(memtx_space);
 		return NULL;

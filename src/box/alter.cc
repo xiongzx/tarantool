@@ -856,7 +856,10 @@ alter_space_do(struct txn *txn, struct alter_space *alter)
 	 * Create a new (empty) space for the new definition.
 	 * Sic: the triggers are not moved over yet.
 	 */
-	alter->new_space = space_new_xc(alter->space_def, &alter->key_list);
+	alter->new_space =
+		space_new_xc(alter->space_def, &alter->key_list,
+			     alter->old_space->format != NULL ?
+			     alter->old_space->format->epoch + 1 : 1);
 	/*
 	 * Copy the replace function, the new space is at the same recovery
 	 * phase as the old one. This hack is especially necessary for
@@ -1667,7 +1670,7 @@ on_replace_dd_space(struct trigger * /* trigger */, void *event)
 		access_check_ddl(def->name, def->id, def->uid, SC_SPACE,
 				 PRIV_C);
 		RLIST_HEAD(empty_list);
-		struct space *space = space_new_xc(def, &empty_list);
+		struct space *space = space_new_xc(def, &empty_list, 0);
 		/**
 		 * The new space must be inserted in the space
 		 * cache right away to achieve linearisable

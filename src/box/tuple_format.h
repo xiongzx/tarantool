@@ -137,6 +137,8 @@ tuple_field_is_nullable(const struct tuple_field *tuple_field)
  * Tuple format describes how tuple is stored and information about its fields
  */
 struct tuple_format {
+	/** Counter that grows incrementally on space rebuild. */
+	uint64_t epoch;
 	/** Virtual function table */
 	struct tuple_format_vtab vtab;
 	/** Pointer to engine-specific data. */
@@ -252,6 +254,7 @@ tuple_format_unref(struct tuple_format *format)
  * @param key_count The number of keys in @a keys array.
  * @param space_fields Array of fields, defined in a space format.
  * @param space_field_count Length of @a space_fields.
+ * @param epoch Epoch of new format.
  *
  * @retval not NULL Tuple format.
  * @retval     NULL Memory error.
@@ -259,7 +262,8 @@ tuple_format_unref(struct tuple_format *format)
 struct tuple_format *
 tuple_format_new(struct tuple_format_vtab *vtab, struct key_def * const *keys,
 		 uint16_t key_count, const struct field_def *space_fields,
-		 uint32_t space_field_count, struct tuple_dictionary *dict);
+		 uint32_t space_field_count, struct tuple_dictionary *dict,
+		 uint64_t epoch);
 
 /**
  * Check, if @a format1 can store any tuples of @a format2. For

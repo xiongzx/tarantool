@@ -183,18 +183,18 @@ fail:
 }
 
 struct space *
-space_new(struct space_def *def, struct rlist *key_list)
+space_new(struct space_def *def, struct rlist *key_list, uint64_t epoch)
 {
 	struct engine *engine = engine_find(def->engine_name);
 	if (engine == NULL)
 		return NULL;
-	return engine_create_space(engine, def, key_list);
+	return engine_create_space(engine, def, key_list, epoch);
 }
 
 struct space *
 space_new_ephemeral(struct space_def *def, struct rlist *key_list)
 {
-	struct space *space = space_new(def, key_list);
+	struct space *space = space_new(def, key_list, 0);
 	if (space == NULL)
 		return NULL;
 	space->def->opts.is_temporary = true;

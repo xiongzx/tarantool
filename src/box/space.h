@@ -417,10 +417,11 @@ struct field_def;
  * Allocate and initialize a space.
  * @param space_def Space definition.
  * @param key_list List of index_defs.
+ * @param epoch Last epoch to initialize format.
  * @retval Space object.
  */
 struct space *
-space_new(struct space_def *space_def, struct rlist *key_list);
+space_new(struct space_def *space_def, struct rlist *key_list, uint64_t epoch);
 
 /**
  * Create an ephemeral space.
@@ -471,9 +472,10 @@ int generic_space_prepare_alter(struct space *, struct space *);
 } /* extern "C" */
 
 static inline struct space *
-space_new_xc(struct space_def *space_def, struct rlist *key_list)
+space_new_xc(struct space_def *space_def, struct rlist *key_list,
+	     uint64_t epoch)
 {
-	struct space *space = space_new(space_def, key_list);
+	struct space *space = space_new(space_def, key_list, epoch);
 	if (space == NULL)
 		diag_raise();
 	return space;

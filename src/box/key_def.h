@@ -101,6 +101,14 @@ struct key_part {
 	char *path;
 	/** The length of JSON path. */
 	uint32_t path_len;
+	/**
+	 * Source format for offset_slot_cache hit validations.
+	 * Cache is expected to use "the format with the newest
+	 * epoch is most relevant" strategy.
+	 */
+	struct tuple_format *format_cache;
+	/** Cache with format's field offset slot. */
+	int32_t offset_slot_cache;
 };
 
 struct key_def;
