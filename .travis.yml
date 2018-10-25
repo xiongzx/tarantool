@@ -92,7 +92,7 @@ deploy:
     script: make -f .travis.mk source_deploy
     skip_cleanup: true
     on:
-      branch: "1.6"
+      branch: "Totktonada/1.6-tmp-change-tarball-buckets"
       condition: "x${TARGET} = xsource"
 
 notifications:
