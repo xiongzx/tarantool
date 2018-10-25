@@ -1349,6 +1349,7 @@ sql_key_info_new(sqlite3 *db, uint32_t part_count)
 		part->is_nullable = false;
 		part->nullable_action = ON_CONFLICT_ACTION_ABORT;
 		part->sort_order = SORT_ORDER_ASC;
+		part->path = NULL;
 	}
 	return key_info;
 }
@@ -1356,6 +1357,9 @@ sql_key_info_new(sqlite3 *db, uint32_t part_count)
 struct sql_key_info *
 sql_key_info_new_from_key_def(sqlite3 *db, const struct key_def *key_def)
 {
+	/** SQL key_parts could not have JSON paths. */
+	for (uint32_t i = 0; i < key_def->part_count; i++)
+		assert(key_def->parts[i].path == NULL);
 	struct sql_key_info *key_info = sqlite3DbMallocRawNN(db,
 				sql_key_info_sizeof(key_def->part_count));
 	if (key_info == NULL) {
@@ -1366,7 +1370,7 @@ sql_key_info_new_from_key_def(sqlite3 *db, const struct key_def *key_def)
 	key_info->key_def = NULL;
 	key_info->refs = 1;
 	key_info->part_count = key_def->part_count;
-	key_def_dump_parts(key_def, key_info->parts);
+	key_def_dump_parts(&fiber()->gc, key_def, key_info->parts);
 	return key_info;
 }
 

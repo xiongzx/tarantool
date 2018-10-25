@@ -28,6 +28,8 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+#include "fiber.h"
+#include "json/path.h"
 #include "key_def.h"
 #include "tuple_compare.h"
 #include "tuple_extract_key.h"
@@ -44,7 +46,8 @@ const struct key_part_def key_part_def_default = {
 	COLL_NONE,
 	false,
 	ON_CONFLICT_ACTION_DEFAULT,
-	SORT_ORDER_ASC
+	SORT_ORDER_ASC,
+	NULL
 };
 
 static int64_t
@@ -59,6 +62,7 @@ part_type_by_name_wrapper(const char *str, uint32_t len)
 #define PART_OPT_NULLABILITY	 "is_nullable"
 #define PART_OPT_NULLABLE_ACTION "nullable_action"
 #define PART_OPT_SORT_ORDER	 "sort_order"
+#define PART_OPT_PATH		 "path"
 
 const struct opt_def part_def_reg[] = {
 	OPT_DEF_ENUM(PART_OPT_TYPE, field_type, struct key_part_def, type,
@@ -71,6 +75,7 @@ const struct opt_def part_def_reg[] = {
 		     struct key_part_def, nullable_action, NULL),
 	OPT_DEF_ENUM(PART_OPT_SORT_ORDER, sort_order, struct key_part_def,
 		     sort_order, NULL),
+	OPT_DEF(PART_OPT_PATH, OPT_STRPTR, struct key_part_def, path),
 	OPT_END,
 };
 
@@ -106,13 +111,25 @@ const uint32_t key_mp_type[] = {
 struct key_def *
 key_def_dup(const struct key_def *src)
 {
-	size_t sz = key_def_sizeof(src->part_count);
-	struct key_def *res = (struct key_def *)malloc(sz);
+	const struct key_part *parts = src->parts;
+	const struct key_part *parts_end = parts + src->part_count;
+	size_t sz = 0;
+	for (; parts < parts_end; parts++)
+		sz += parts->path != NULL ? parts->path_len + 1 : 0;
+	sz = key_def_sizeof(src->part_count, sz);
+	struct key_def *res = (struct key_def *)calloc(1, sz);
 	if (res == NULL) {
 		diag_set(OutOfMemory, sz, "malloc", "res");
 		return NULL;
 	}
 	memcpy(res, src, sz);
+	/* Update paths to point to the new memory chunk.*/
+	for (uint32_t i = 0; i < src->part_count; i++) {
+		if (src->parts[i].path == NULL)
+			continue;
+		size_t path_offset = src->parts[i].path - (char *)src;
+		res->parts[i].path = (char *)res + path_offset;
+	}
 	return res;
 }
 
@@ -120,8 +137,23 @@ void
 key_def_swap(struct key_def *old_def, struct key_def *new_def)
 {
 	assert(old_def->part_count == new_def->part_count);
-	for (uint32_t i = 0; i < new_def->part_count; i++)
-		SWAP(old_def->parts[i], new_def->parts[i]);
+	for (uint32_t i = 0; i < new_def->part_count; i++) {
+		if (old_def->parts[i].path == NULL) {
+			SWAP(old_def->parts[i], new_def->parts[i]);
+		} else {
+			/*
+			 * Since the data is located in  memory
+			 * in the same order (otherwise rebuild
+			 * would be called), just update the
+			 * pointers.
+			 */
+			size_t path_offset =
+				old_def->parts[i].path - (char *)old_def;
+			SWAP(old_def->parts[i], new_def->parts[i]);
+			old_def->parts[i].path = (char *)old_def + path_offset;
+			new_def->parts[i].path = (char *)new_def + path_offset;
+		}
+	}
 	SWAP(*old_def, *new_def);
 }
 
@@ -144,24 +176,38 @@ static void
 key_def_set_part(struct key_def *def, uint32_t part_no, uint32_t fieldno,
 		 enum field_type type, enum on_conflict_action nullable_action,
 		 struct coll *coll, uint32_t coll_id,
-		 enum sort_order sort_order)
+		 enum sort_order sort_order, const char *path,
+		 uint32_t path_len)
 {
 	assert(part_no < def->part_count);
 	assert(type < field_type_MAX);
 	def->is_nullable |= (nullable_action == ON_CONFLICT_ACTION_NONE);
+	def->has_json_paths |= path != NULL;
 	def->parts[part_no].nullable_action = nullable_action;
 	def->parts[part_no].fieldno = fieldno;
 	def->parts[part_no].type = type;
 	def->parts[part_no].coll = coll;
 	def->parts[part_no].coll_id = coll_id;
 	def->parts[part_no].sort_order = sort_order;
+	if (path != NULL) {
+		def->parts[part_no].path_len = path_len;
+		assert(def->parts[part_no].path != NULL);
+		memcpy(def->parts[part_no].path, path, path_len);
+		def->parts[part_no].path[path_len] = '\0';
+	} else {
+		def->parts[part_no].path_len = 0;
+		def->parts[part_no].path = NULL;
+	}
 	column_mask_set_fieldno(&def->column_mask, fieldno);
 }
 
 struct key_def *
 key_def_new(const struct key_part_def *parts, uint32_t part_count)
 {
-	size_t sz = key_def_sizeof(part_count);
+	ssize_t sz = 0;
+	for (uint32_t i = 0; i < part_count; i++)
+		sz += parts[i].path != NULL ? strlen(parts[i].path) + 1 : 0;
+	sz = key_def_sizeof(part_count, sz);
 	struct key_def *def = calloc(1, sz);
 	if (def == NULL) {
 		diag_set(OutOfMemory, sz, "malloc", "struct key_def");
@@ -171,6 +217,7 @@ key_def_new(const struct key_part_def *parts, uint32_t part_count)
 	def->part_count = part_count;
 	def->unique_part_count = part_count;
 
+	char *data = (char *)def + key_def_sizeof(part_count, 0);
 	for (uint32_t i = 0; i < part_count; i++) {
 		const struct key_part_def *part = &parts[i];
 		struct coll *coll = NULL;
@@ -184,16 +231,23 @@ key_def_new(const struct key_part_def *parts, uint32_t part_count)
 			}
 			coll = coll_id->coll;
 		}
+		uint32_t path_len = 0;
+		if (part->path != NULL) {
+			path_len = strlen(part->path);
+			def->parts[i].path = data;
+			data += path_len + 1;
+		}
 		key_def_set_part(def, i, part->fieldno, part->type,
 				 part->nullable_action, coll, part->coll_id,
-				 part->sort_order);
+				 part->sort_order, part->path, path_len);
 	}
 	key_def_set_cmp(def);
 	return def;
 }
 
-void
-key_def_dump_parts(const struct key_def *def, struct key_part_def *parts)
+int
+key_def_dump_parts(struct region *pool, const struct key_def *def,
+		   struct key_part_def *parts)
 {
 	for (uint32_t i = 0; i < def->part_count; i++) {
 		const struct key_part *part = &def->parts[i];
@@ -203,13 +257,27 @@ key_def_dump_parts(const struct key_def *def, struct key_part_def *parts)
 		part_def->is_nullable = key_part_is_nullable(part);
 		part_def->nullable_action = part->nullable_action;
 		part_def->coll_id = part->coll_id;
+		if (part->path != NULL) {
+			char *path  = region_alloc(pool, part->path_len + 1);
+			if (path == NULL) {
+				diag_set(OutOfMemory, part->path_len + 1,
+					 "region_alloc", "part_def->path");
+				return -1;
+			}
+			memcpy(path, part->path, part->path_len);
+			path[part->path_len] = '\0';
+			part_def->path = path;
+		} else {
+			part_def->path = NULL;
+}
 	}
+	return 0;
 }
 
 box_key_def_t *
 box_key_def_new(uint32_t *fields, uint32_t *types, uint32_t part_count)
 {
-	size_t sz = key_def_sizeof(part_count);
+	size_t sz = key_def_sizeof(part_count, 0);
 	struct key_def *key_def = calloc(1, sz);
 	if (key_def == NULL) {
 		diag_set(OutOfMemory, sz, "malloc", "struct key_def");
@@ -223,7 +291,7 @@ box_key_def_new(uint32_t *fields, uint32_t *types, uint32_t part_count)
 		key_def_set_part(key_def, item, fields[item],
 				 (enum field_type)types[item],
 				 ON_CONFLICT_ACTION_DEFAULT,
-				 NULL, COLL_NONE, SORT_ORDER_ASC);
+				 NULL, COLL_NONE, SORT_ORDER_ASC, NULL, 0);
 	}
 	key_def_set_cmp(key_def);
 	return key_def;
@@ -272,6 +340,9 @@ key_part_cmp(const struct key_part *parts1, uint32_t part_count1,
 		if (key_part_is_nullable(part1) != key_part_is_nullable(part2))
 			return key_part_is_nullable(part1) <
 			       key_part_is_nullable(part2) ? -1 : 1;
+		int rc;
+		if ((rc = key_part_path_cmp(part1, part2)) != 0)
+			return rc;
 	}
 	return part_count1 < part_count2 ? -1 : part_count1 > part_count2;
 }
@@ -303,8 +374,15 @@ key_def_snprint_parts(char *buf, int size, const struct key_part_def *parts,
 	for (uint32_t i = 0; i < part_count; i++) {
 		const struct key_part_def *part = &parts[i];
 		assert(part->type < field_type_MAX);
-		SNPRINT(total, snprintf, buf, size, "%d, '%s'",
-			(int)part->fieldno, field_type_strs[part->type]);
+		if (part->path != NULL) {
+			SNPRINT(total, snprintf, buf, size, "%d, '%s', '%s'",
+				(int)part->fieldno, part->path,
+				field_type_strs[part->type]);
+		} else {
+			SNPRINT(total, snprintf, buf, size, "%d, '%s'",
+				(int)part->fieldno,
+				field_type_strs[part->type]);
+		}
 		if (i < part_count - 1)
 			SNPRINT(total, snprintf, buf, size, ", ");
 	}
@@ -323,6 +401,8 @@ key_def_sizeof_parts(const struct key_part_def *parts, uint32_t part_count)
 			count++;
 		if (part->is_nullable)
 			count++;
+		if (part->path != NULL)
+			count++;
 		size += mp_sizeof_map(count);
 		size += mp_sizeof_str(strlen(PART_OPT_FIELD));
 		size += mp_sizeof_uint(part->fieldno);
@@ -336,6 +416,10 @@ key_def_sizeof_parts(const struct key_part_def *parts, uint32_t part_count)
 		if (part->is_nullable) {
 			size += mp_sizeof_str(strlen(PART_OPT_NULLABILITY));
 			size += mp_sizeof_bool(part->is_nullable);
+		}
+		if (part->path != NULL) {
+			size += mp_sizeof_str(strlen(PART_OPT_PATH));
+			size += mp_sizeof_str(strlen(part->path));
 		}
 	}
 	return size;
@@ -351,6 +435,8 @@ key_def_encode_parts(char *data, const struct key_part_def *parts,
 		if (part->coll_id != COLL_NONE)
 			count++;
 		if (part->is_nullable)
+			count++;
+		if (part->path != NULL)
 			count++;
 		data = mp_encode_map(data, count);
 		data = mp_encode_str(data, PART_OPT_FIELD,
@@ -370,6 +456,12 @@ key_def_encode_parts(char *data, const struct key_part_def *parts,
 			data = mp_encode_str(data, PART_OPT_NULLABILITY,
 					     strlen(PART_OPT_NULLABILITY));
 			data = mp_encode_bool(data, part->is_nullable);
+		}
+		if (part->path != NULL) {
+			data = mp_encode_str(data, PART_OPT_PATH,
+					     strlen(PART_OPT_PATH));
+			data = mp_encode_str(data, part->path,
+					     strlen(part->path));
 		}
 	}
 	return data;
@@ -432,6 +524,7 @@ key_def_decode_parts_166(struct key_part_def *parts, uint32_t part_count,
 				     fields[part->fieldno].is_nullable :
 				     key_part_def_default.is_nullable);
 		part->coll_id = COLL_NONE;
+		part->path = NULL;
 	}
 	return 0;
 }
@@ -445,6 +538,7 @@ key_def_decode_parts(struct key_part_def *parts, uint32_t part_count,
 		return key_def_decode_parts_166(parts, part_count, data,
 						fields, field_count);
 	}
+	struct region *region = &fiber()->gc;
 	for (uint32_t i = 0; i < part_count; i++) {
 		struct key_part_def *part = &parts[i];
 		if (mp_typeof(**data) != MP_MAP) {
@@ -468,7 +562,7 @@ key_def_decode_parts(struct key_part_def *parts, uint32_t part_count,
 			const char *key = mp_decode_str(data, &key_len);
 			if (opts_parse_key(part, part_def_reg, key, key_len, data,
 					   ER_WRONG_INDEX_OPTIONS,
-					   i + TUPLE_INDEX_BASE, NULL,
+					   i + TUPLE_INDEX_BASE, region,
 					   false) != 0)
 				return -1;
 			if (is_action_missing &&
@@ -514,6 +608,34 @@ key_def_decode_parts(struct key_part_def *parts, uint32_t part_count,
 				 "index part: unknown sort order");
 			return -1;
 		}
+		/*
+		 * We should convert JSON path to canonical form
+		 * to prevent indexing same field twice.
+		 */
+		if (part->path != NULL) {
+			uint32_t path_len = strlen(part->path);
+			char *path_normalized =
+				region_alloc(region, 2.5 * path_len + 1);
+			if (path_normalized == NULL) {
+				diag_set(OutOfMemory, 2.5 * path_len + 1,
+					 "region_alloc", "path");
+				return -1;
+			}
+			int rc = json_path_normalize(part->path, path_len,
+						     path_normalized);
+			if (rc != 0) {
+				const char *err_msg =
+					tt_sprintf("invalid JSON path '%s': "
+						   "path has invalid structure "
+						   "(error at position %d)",
+						   part->path, rc);
+				diag_set(ClientError, ER_WRONG_INDEX_OPTIONS,
+					 part->fieldno + TUPLE_INDEX_BASE,
+					 err_msg);
+				return -1;
+			}
+			part->path = path_normalized;
+		}
 	}
 	return 0;
 }
@@ -533,7 +655,8 @@ key_def_find(const struct key_def *key_def, const struct key_part *to_find)
 	const struct key_part *part = key_def->parts;
 	const struct key_part *end = part + key_def->part_count;
 	for (; part != end; part++) {
-		if (part->fieldno == to_find->fieldno)
+		if (part->fieldno == to_find->fieldno &&
+		    key_part_path_cmp(part, to_find) == 0)
 			return part;
 	}
 	return NULL;
@@ -559,18 +682,27 @@ key_def_merge(const struct key_def *first, const struct key_def *second)
 	 * Find and remove part duplicates, i.e. parts counted
 	 * twice since they are present in both key defs.
 	 */
-	const struct key_part *part = second->parts;
-	const struct key_part *end = part + second->part_count;
+	size_t sz = 0;
+	const struct key_part *part = first->parts;
+	const struct key_part *end = part + first->part_count;
+	for (; part != end; part++) {
+		if (part->path != NULL)
+			sz += part->path_len + 1;
+	}
+	part = second->parts;
+	end = part + second->part_count;
 	for (; part != end; part++) {
 		if (key_def_find(first, part) != NULL)
 			--new_part_count;
+		else if (part->path != NULL)
+			sz += part->path_len + 1;
 	}
 
+	sz = key_def_sizeof(new_part_count, sz);
 	struct key_def *new_def;
-	new_def =  (struct key_def *)calloc(1, key_def_sizeof(new_part_count));
+	new_def =  (struct key_def *)calloc(1, sz);
 	if (new_def == NULL) {
-		diag_set(OutOfMemory, key_def_sizeof(new_part_count), "malloc",
-			 "new_def");
+		diag_set(OutOfMemory, sz, "malloc", "new_def");
 		return NULL;
 	}
 	new_def->part_count = new_part_count;
@@ -578,15 +710,22 @@ key_def_merge(const struct key_def *first, const struct key_def *second)
 	new_def->is_nullable = first->is_nullable || second->is_nullable;
 	new_def->has_optional_parts = first->has_optional_parts ||
 				      second->has_optional_parts;
+	/* Path data write position in the new key_def. */
+	char *data = (char *)new_def + key_def_sizeof(new_part_count, 0);
 	/* Write position in the new key def. */
 	uint32_t pos = 0;
 	/* Append first key def's parts to the new index_def. */
 	part = first->parts;
 	end = part + first->part_count;
 	for (; part != end; part++) {
+		if (part->path != NULL) {
+			new_def->parts[pos].path = data;
+			data += part->path_len + 1;
+		}
 		key_def_set_part(new_def, pos++, part->fieldno, part->type,
 				 part->nullable_action, part->coll,
-				 part->coll_id, part->sort_order);
+				 part->coll_id, part->sort_order, part->path,
+				 part->path_len);
 	}
 
 	/* Set-append second key def's part to the new key def. */
@@ -595,9 +734,14 @@ key_def_merge(const struct key_def *first, const struct key_def *second)
 	for (; part != end; part++) {
 		if (key_def_find(first, part) != NULL)
 			continue;
+		if (part->path != NULL) {
+			new_def->parts[pos].path = data;
+			data += part->path_len + 1;
+		}
 		key_def_set_part(new_def, pos++, part->fieldno, part->type,
 				 part->nullable_action, part->coll,
-				 part->coll_id, part->sort_order);
+				 part->coll_id, part->sort_order, part->path,
+				 part->path_len);
 	}
 	key_def_set_cmp(new_def);
 	return new_def;

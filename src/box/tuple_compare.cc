@@ -469,7 +469,8 @@ tuple_compare_slowpath(const struct tuple *tuple_a, const struct tuple *tuple_b,
 	struct key_part *part = key_def->parts;
 	const char *tuple_a_raw = tuple_data(tuple_a);
 	const char *tuple_b_raw = tuple_data(tuple_b);
-	if (key_def->part_count == 1 && part->fieldno == 0) {
+	if (key_def->part_count == 1 && part->fieldno == 0 &&
+	    part->path == NULL) {
 		/*
 		 * First field can not be optional - empty tuples
 		 * can not exist.
@@ -493,8 +494,8 @@ tuple_compare_slowpath(const struct tuple *tuple_a, const struct tuple *tuple_b,
 	}
 
 	bool was_null_met = false;
-	const struct tuple_format *format_a = tuple_format(tuple_a);
-	const struct tuple_format *format_b = tuple_format(tuple_b);
+	struct tuple_format *format_a = tuple_format(tuple_a);
+	struct tuple_format *format_b = tuple_format(tuple_b);
 	const uint32_t *field_map_a = tuple_field_map(tuple_a);
 	const uint32_t *field_map_b = tuple_field_map(tuple_b);
 	struct key_part *end;
@@ -585,7 +586,7 @@ tuple_compare_with_key_slowpath(const struct tuple *tuple, const char *key,
 	assert(key != NULL || part_count == 0);
 	assert(part_count <= key_def->part_count);
 	struct key_part *part = key_def->parts;
-	const struct tuple_format *format = tuple_format(tuple);
+	struct tuple_format *format = tuple_format(tuple);
 	const char *tuple_raw = tuple_data(tuple);
 	const uint32_t *field_map = tuple_field_map(tuple);
 	enum mp_type a_type, b_type;
@@ -1027,7 +1028,7 @@ tuple_compare_create(const struct key_def *def)
 		}
 	}
 	assert(! def->has_optional_parts);
-	if (!key_def_has_collation(def)) {
+	if (!key_def_has_collation(def) && !def->has_json_paths) {
 		/* Precalculated comparators don't use collation */
 		for (uint32_t k = 0;
 		     k < sizeof(cmp_arr) / sizeof(cmp_arr[0]); k++) {
@@ -1247,7 +1248,7 @@ tuple_compare_with_key_create(const struct key_def *def)
 		}
 	}
 	assert(! def->has_optional_parts);
-	if (!key_def_has_collation(def)) {
+	if (!key_def_has_collation(def) && !def->has_json_paths) {
 		/* Precalculated comparators don't use collation */
 		for (uint32_t k = 0;
 		     k < sizeof(cmp_wk_arr) / sizeof(cmp_wk_arr[0]);

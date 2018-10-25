@@ -10,7 +10,8 @@ key_def_parts_are_sequential(const struct key_def *def, int i)
 {
 	uint32_t fieldno1 = def->parts[i].fieldno + 1;
 	uint32_t fieldno2 = def->parts[i + 1].fieldno;
-	return fieldno1 == fieldno2;
+	return fieldno1 == fieldno2 && def->parts[i].path == NULL &&
+	       def->parts[i + 1].path == NULL;
 }
 
 /** True, if a key con contain two or more parts in sequence. */
@@ -111,7 +112,7 @@ tuple_extract_key_slowpath(const struct tuple *tuple,
 	const char *data = tuple_data(tuple);
 	uint32_t part_count = key_def->part_count;
 	uint32_t bsize = mp_sizeof_array(part_count);
-	const struct tuple_format *format = tuple_format(tuple);
+	struct tuple_format *format = tuple_format(tuple);
 	const uint32_t *field_map = tuple_field_map(tuple);
 	const char *tuple_end = data + tuple->bsize;
 
@@ -241,7 +242,8 @@ tuple_extract_key_slowpath_raw(const char *data, const char *data_end,
 			if (!key_def_parts_are_sequential(key_def, i))
 				break;
 		}
-		uint32_t end_fieldno = key_def->parts[i].fieldno;
+		const struct key_part *part = &key_def->parts[i];
+		uint32_t end_fieldno = part->fieldno;
 
 		if (fieldno < current_fieldno) {
 			/* Rewind. */
@@ -283,6 +285,15 @@ tuple_extract_key_slowpath_raw(const char *data, const char *data_end,
 				current_fieldno++;
 			}
 		}
+		const char *field_last, *field_end_last;
+		if (part->path != NULL) {
+			field_last = field;
+			field_end_last = field_end;
+			(void)tuple_field_go_to_path(&field, part->path,
+						     part->path_len);
+			field_end = field;
+			mp_next(&field_end);
+		}
 		memcpy(key_buf, field, field_end - field);
 		key_buf += field_end - field;
 		if (has_optional_parts && null_count != 0) {
@@ -290,6 +301,10 @@ tuple_extract_key_slowpath_raw(const char *data, const char *data_end,
 			key_buf += null_count * mp_sizeof_nil();
 		} else {
 			assert(key_buf - key <= data_end - data);
+		}
+		if (part->path != NULL) {
+			field = field_last;
+			field_end = field_end_last;
 		}
 	}
 	if (key_size != NULL)

@@ -116,6 +116,8 @@ struct tuple_field {
 	uint32_t coll_id;
 	/** An JSON tree entry to organize tree. */
 	struct json_tree_entry tree_entry;
+	/** A maximum depth of field subtree. */
+	uint32_t subtree_depth;
 };
 
 /**
@@ -169,12 +171,16 @@ struct tuple_format {
 	 * index_field_count <= min_field_count <= field_count.
 	 */
 	uint32_t min_field_count;
+	/** Size of format allocation. */
+	uint32_t allocation_size;
 	/**
 	 * Shared names storage used by all formats of a space.
 	 */
 	struct tuple_dictionary *dict;
 	/** JSON tree of fields. */
 	struct json_tree field_tree;
+	/** A maximum depth of fields subtree. */
+	uint32_t subtree_depth;
 };
 
 
@@ -193,6 +199,17 @@ tuple_format_field(struct tuple_format *format, uint32_t fieldno)
 	return json_tree_entry_container(tree_entry, struct tuple_field,
 					 tree_entry);
 }
+
+static inline struct tuple_field *
+tuple_format_field_by_path(struct tuple_format *format,
+			   struct tuple_field *root, const char *path,
+			   uint32_t path_len)
+{
+	return json_tree_lookup_entry(&format->field_tree, &root->tree_entry,
+				      path, path_len, struct tuple_field,
+				      tree_entry);
+}
+
 
 extern struct tuple_format **tuple_formats;
 
@@ -395,6 +412,18 @@ tuple_field_raw_by_name(struct tuple_format *format, const char *tuple,
 }
 
 /**
+ * Retrieve msgpack data by JSON path.
+ * @param data Pointer to msgpack with data.
+ * @param path The path to process.
+ * @param path_len The length of the @path.
+ * @retval 0 On success.
+ * @retval >0 On path parsing error, invalid character position.
+ */
+int
+tuple_field_go_to_path(const char **data, const char *path,
+		       uint32_t path_len);
+
+/**
  * Get tuple field by its path.
  * @param format Tuple format.
  * @param tuple MessagePack tuple's body.
@@ -421,12 +450,9 @@ tuple_field_raw_by_path(struct tuple_format *format, const char *tuple,
  * @param part Index part to use.
  * @retval Field data if the field exists or NULL.
  */
-static inline const char *
-tuple_field_by_part_raw(const struct tuple_format *format, const char *data,
-			const uint32_t *field_map, struct key_part *part)
-{
-	return tuple_field_raw(format, data, field_map, part->fieldno);
-}
+const char *
+tuple_field_by_part_raw(struct tuple_format *format, const char *data,
+			const uint32_t *field_map, struct key_part *part);
 
 #if defined(__cplusplus)
 } /* extern "C" */
