@@ -97,3 +97,10 @@ box.sql.execute("ALTER TABLE t3 DROP CONSTRAINT fk1;")
 box.sql.execute("INSERT INTO t3 VALUES(1, 1, 3);")
 errinj.set("ERRINJ_WAL_IO", false)
 box.sql.execute("DROP TABLE t3;")
+
+-- Make sure that overflow of rowid used for ephemeral spaces
+-- is hadnled properly.
+--
+box.error.injection.set("ERRINJ_ROWID_OVERFLOW", true)
+box.sql.execute("WITH RECURSIVE tmp AS (SELECT 1 UNION ALL SELECT * FROM tmp LIMIT 2) SELECT * FROM tmp;")
+box.error.injection.set("ERRINJ_ROWID_OVERFLOW", false)

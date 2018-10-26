@@ -279,3 +279,18 @@ errinj.set("ERRINJ_WAL_IO", false)
 box.sql.execute("DROP TABLE t3;")
 ---
 ...
+-- Make sure that overflow of rowid used for ephemeral spaces
+-- is hadnled properly.
+--
+box.error.injection.set("ERRINJ_ROWID_OVERFLOW", true)
+---
+- ok
+...
+box.sql.execute("WITH RECURSIVE tmp AS (SELECT 1 UNION ALL SELECT * FROM tmp LIMIT 2) SELECT * FROM tmp;")
+---
+- error: 'Rowid is overflowed: too many entries in ephemeral space'
+...
+box.error.injection.set("ERRINJ_ROWID_OVERFLOW", false)
+---
+- ok
+...
