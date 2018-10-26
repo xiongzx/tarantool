@@ -919,6 +919,16 @@ local function rocks()
         return "See Tarantool documentation for help."
     end
 
+    -- Monkeypatch luarocks.fs.tools.get_md5()
+    local digest = require('digest')
+    package.loaded['luarocks.fs'].get_md5 = function(file)
+        local file_handler = io.open(file, "rb")
+        if not file_handler then
+            return nil, "Failed to open file for reading: "..file
+        end
+        return digest.md5_hex(file_handler:read("*a"))
+    end
+
     -- Enable only useful commands
     local commands = {
        install = "luarocks.install",
