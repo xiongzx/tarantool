@@ -900,6 +900,9 @@ local function find_arg(name_arg)
 end
 
 local function rocks()
+    -- Mimic md5 used in luarocks
+    local digest = require('digest')
+    package.loaded['md5'] = { sumhexa = digest.md5_hex }
     local cfg = require("luarocks.cfg")
     local util = require("luarocks.util")
     local loader = require("luarocks.loader")
