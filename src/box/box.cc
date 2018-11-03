@@ -2157,6 +2157,7 @@ box_checkpoint()
 	if (! is_box_configured)
 		return 0;
 	int rc = 0;
+	size_t used = region_used(&fiber()->gc);
 	if (box_checkpoint_is_in_progress) {
 		diag_set(ClientError, ER_CHECKPOINT_IN_PROGRESS);
 		return -1;
@@ -2181,6 +2182,7 @@ end:
 
 	latch_unlock(&schema_lock);
 	box_checkpoint_is_in_progress = false;
+	region_truncate(&fiber()->gc, used);
 	return rc;
 }
 

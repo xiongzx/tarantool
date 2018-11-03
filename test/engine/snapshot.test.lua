@@ -41,3 +41,20 @@ box.space.test:select{}
 box.space.test.index.primary:select{}
 box.space.test.index.secondary:select{}
 box.space.test:drop()
+
+--
+-- sql: fix sql/gh-3199-no-mem-leaks.test.lua
+-- One of the reason why this test failed - box.snapshot didn't
+-- free region.
+--
+
+fiber = require('fiber')
+-- Should be 0.
+fiber.info()[fiber.self().id()].memory.used
+box.snapshot()
+-- Should be 0.
+fiber.info()[fiber.self().id()].memory.used
+box.snapshot()
+box.snapshot()
+-- Should be 0.
+fiber.info()[fiber.self().id()].memory.used
