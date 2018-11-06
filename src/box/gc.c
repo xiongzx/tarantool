@@ -110,7 +110,7 @@ void
 gc_set_wal_watcher(void)
 {
 	wal_set_watcher(&gc.wal_watcher, "tx", gc_process_wal_event,
-			cbus_process, WAL_EVENT_GC);
+			NULL, WAL_EVENT_GC);
 }
 
 void
