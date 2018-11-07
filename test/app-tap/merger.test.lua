@@ -341,22 +341,14 @@ local function run_merger_internal(context)
     -- Merge N inputs into res.
     merger_inst:start(unpack(merger_start_opts))
 
-    if merger_start_opts[2].buffer == nil then
-        res = {}
-
-        while true do
-            local tuple = merger_inst:next()
-            if tuple == nil then break end
-            table.insert(res, tuple)
+    if merger_start_opts[2].table_output ~= nil then
+        -- Table output.
+        res = merger_start_opts[2].table_output
+        if opts.use_chain_io then
+            res = res[#res]
         end
-
-        -- Prepare for comparing.
-        for i = 1, #res do
-            if type(res[i]) ~= 'table' then
-                res[i] = res[i]:totable()
-            end
-        end
-    else
+    elseif merger_start_opts[2].buffer ~= nil then
+        -- Buffer output.
         local obuf = merger_start_opts[2].buffer
         local output_chain_first = merger_start_opts[2].output_chain_first
         local output_chain_len = merger_start_opts[2].output_chain_len
@@ -376,6 +368,22 @@ local function run_merger_internal(context)
             local data, new_rpos = msgpackffi.decode(obuf.rpos)
             obuf:read(new_rpos - obuf.rpos)
             res = data
+        end
+    else
+        -- Function output.
+        res = {}
+
+        while true do
+            local tuple = merger_inst:next()
+            if tuple == nil then break end
+            table.insert(res, tuple)
+        end
+    end
+
+    -- Prepare for comparing.
+    for i = 1, #res do
+        if type(res[i]) ~= 'table' then
+            res[i] = res[i]:totable()
         end
     end
 
@@ -411,10 +419,10 @@ local function run_merger(test, schema, tuples_cnt, sources_cnt, opts)
         opts = opts,
     }
 
-    local obuf
     if opts.output_type == 'buffer' then
-        obuf = buffer.ibuf()
-        context.merger_start_opts[2].buffer = obuf
+        context.merger_start_opts[2].buffer = buffer.ibuf()
+    elseif opts.output_type == 'table' then
+        context.merger_start_opts[2].table_output = {}
     end
 
     if use_chain_io then
@@ -436,6 +444,11 @@ local function run_merger(test, schema, tuples_cnt, sources_cnt, opts)
                     -- from msgpack decoding out of the
                     -- intermediate result.
                     context.merger_start_opts[2].output_chain_len = 1
+                elseif opts.output_type == 'table' then
+                    context.merger_start_opts[2].output_chain_first =
+                        input_chain_first
+                    -- output_chain_len is not used in table
+                    -- chained output.
                 end
                 -- Use different merger for one of results in the
                 -- batch.
@@ -472,7 +485,7 @@ local function run_case(test, schema, opts)
 end
 
 local test = tap.test('merger')
-test:plan(14 + #schemas * 16)
+test:plan(16 + #schemas * 24)
 
 -- Case: pass a field on an unknown type.
 local ok, err = pcall(merger.new, {{
@@ -542,6 +555,7 @@ local start_usage = 'start(merger, {buffer, buffer, ...}' ..
     '[, {descending = <boolean> or <nil>, ' ..
     'input_chain_first = <boolean> or <nil>, ' ..
     'buffer = <cdata<struct ibuf>>, ' ..
+    'table_output = <table>, ' ..
     'output_chain_first = <boolean> or <nil>, ' ..
     'output_chain_len = <number> or <nil>}])'
 
@@ -549,6 +563,11 @@ local start_usage = 'start(merger, {buffer, buffer, ...}' ..
 local ok, err = pcall(merger_inst.start, merger_inst, {}, 1)
 local exp_err = 'Bad params, use: ' .. start_usage
 test:is_deeply({ok, err}, {false, exp_err}, 'start() bad opts')
+
+-- Case: start() bad opts.table_output.
+local ok, err = pcall(merger_inst.start, merger_inst, {}, {table_output = 1})
+local exp_err = 'Bad param "table_output", use: ' .. start_usage
+test:is_deeply({ok, err}, {false, exp_err}, 'start() bad table_output')
 
 -- Case: start() bad opts.descending.
 local ok, err = pcall(merger_inst.start, merger_inst, {}, {descending = 1})
@@ -579,6 +598,13 @@ local exp_err = '"output_chain_len" is mandatory when "buffer" and ' ..
     '"output_chain_first" are used'
 test:is_deeply({ok, err}, {false, exp_err}, 'start() missed output_chain_len')
 
+-- Case: start() with opts.buffer and opts.table_output both.
+local ok, err = pcall(merger_inst.start, merger_inst, {},
+    {buffer = buffer.ibuf(), table_output = {}})
+local exp_err = '"buffer" and "table_output" options are mutually exclusive'
+test:is_deeply({ok, err}, {false, exp_err},
+    'start() both buffer and table_output')
+
 -- Case: function input + chaining.
 local ok, err = pcall(merger_inst.start, merger_inst, {function() end},
     {buffer = buffer.ibuf(), output_chain_first = true, output_chain_len = 1})
@@ -594,7 +620,7 @@ test:is_deeply({ok, err}, {false, exp_err}, 'wrong table input item')
 -- Remaining cases.
 for _, use_chain_io in ipairs({false, true}) do
     for _, input_type in ipairs({'buffer', 'table', 'function'}) do
-        for _, output_type in ipairs({'buffer', 'function'}) do
+        for _, output_type in ipairs({'buffer', 'table', 'function'}) do
             for _, schema in ipairs(schemas) do
                 -- One cannot use function input with chain buffer
                 -- output.

@@ -111,6 +111,12 @@ enum source_type_t {
 	SOURCE_TYPE_FUNCTION,
 };
 
+enum result_type_t {
+	RESULT_TYPE_NONE,
+	RESULT_TYPE_BUFFER,
+	RESULT_TYPE_TABLE,
+};
+
 struct source {
 	struct heap_node hnode;
 	enum source_type_t source_type;
@@ -150,8 +156,12 @@ struct merger {
 	/* Parameters to decode a msgpack header. */
 	bool input_chain;
 	bool input_chain_first;
-	/* User-provided output buffer. */
-	struct ibuf *obuf;
+	/* Result type and user-provided structure to store it. */
+	enum result_type_t result_type;
+	union {
+		struct ibuf *obuf;
+		int tbl_ref;
+	} result;
 	/* Parameters to encode a msgpack header. */
 	bool output_chain;
 	bool output_chain_first;
@@ -385,25 +395,24 @@ decode_header(struct merger *merger, struct ibuf *buf, size_t *len_p)
  */
 static void encode_header(struct merger *merger, uint32_t result_len_max)
 {
+	struct ibuf *obuf = merger->result.obuf;
+
 	/* Encode {[IPROTO_DATA] = {...}} header. */
 	if (!merger->output_chain || merger->output_chain_first) {
-		ibuf_reserve(merger->obuf, mp_sizeof_map(1) +
+		ibuf_reserve(obuf, mp_sizeof_map(1) +
 			     mp_sizeof_uint(IPROTO_DATA));
-		merger->obuf->wpos = mp_encode_map(merger->obuf->wpos, 1);
-		merger->obuf->wpos = mp_encode_uint(merger->obuf->wpos,
-						    IPROTO_DATA);
+		obuf->wpos = mp_encode_map(obuf->wpos, 1);
+		obuf->wpos = mp_encode_uint(obuf->wpos, IPROTO_DATA);
 	}
 	/* Encode the array around chained output. */
 	if (merger->output_chain_first) {
 		uint32_t output_chain_len = merger->output_chain_len;
-		ibuf_reserve(merger->obuf, mp_sizeof_array(output_chain_len));
-		merger->obuf->wpos = mp_encode_array(merger->obuf->wpos,
-						     output_chain_len);
+		ibuf_reserve(obuf, mp_sizeof_array(output_chain_len));
+		obuf->wpos = mp_encode_array(obuf->wpos, output_chain_len);
 	}
 	/* Encode the array around resulting tuples. */
-	ibuf_reserve(merger->obuf, mp_sizeof_array(result_len_max));
-	merger->obuf->wpos = mp_encode_array(merger->obuf->wpos,
-					     result_len_max);
+	ibuf_reserve(obuf, mp_sizeof_array(result_len_max));
+	obuf->wpos = mp_encode_array(obuf->wpos, result_len_max);
 }
 
 static int start_usage_error(struct lua_State *L, const char *param_name)
@@ -413,6 +422,7 @@ static int start_usage_error(struct lua_State *L, const char *param_name)
 				   "descending = <boolean> or <nil>, "
 				   "input_chain_first = <boolean> or <nil>, "
 				   "buffer = <cdata<struct ibuf>>, "
+				   "table_output = <table>, "
 				   "output_chain_first = <boolean> or <nil>, "
 				   "output_chain_len = <number> or <nil>}])";
 	if (param_name == NULL)
@@ -438,7 +448,7 @@ merger_next(struct lua_State *L, struct merger *merger, uint32_t *result_len_p)
 	else
 		MERGER_HEAP_UPDATE(&merger->heap, hnode, source);
 
-	if (source->source_type == SOURCE_TYPE_FUNCTION)
+	if (source->source_type == SOURCE_TYPE_FUNCTION && result_len_p != NULL)
 		++(*result_len_p);
 
 	return res;
@@ -447,6 +457,7 @@ merger_next(struct lua_State *L, struct merger *merger, uint32_t *result_len_p)
 static void
 encode_result_buffer(struct lua_State *L, struct merger *merger)
 {
+	struct ibuf *obuf = merger->result.obuf;
 	uint32_t result_len = merger->precalculated_result_len;
 	uint32_t result_len_offset = 4;
 
@@ -462,16 +473,52 @@ encode_result_buffer(struct lua_State *L, struct merger *merger)
 	struct tuple *tuple;
 	while ((tuple = merger_next(L, merger, &result_len)) != NULL) {
 		uint32_t bsize = tuple->bsize;
-		ibuf_reserve(merger->obuf, bsize);
-		memcpy(merger->obuf->wpos, tuple_data(tuple), bsize);
-		merger->obuf->wpos += bsize;
+		ibuf_reserve(obuf, bsize);
+		memcpy(obuf->wpos, tuple_data(tuple), bsize);
+		obuf->wpos += bsize;
 		result_len_offset += bsize;
+		box_tuple_unref(tuple);
 	}
 
 	/* Write the real array size if needed. */
 	if (merger->has_function_source)
-		mp_store_u32(merger->obuf->wpos - result_len_offset,
-			     result_len);
+		mp_store_u32(obuf->wpos - result_len_offset, result_len);
+}
+
+static void
+encode_result_table(struct lua_State *L, struct merger *merger)
+{
+	/* Push result table to top of the stack. */
+	lua_rawgeti(L, LUA_REGISTRYINDEX, merger->result.tbl_ref);
+
+	/* Create a subtable when encode chained output. */
+	if (merger->output_chain) {
+		/*
+		 * 1-based index of the subtable in the 'main'
+		 * table.
+		 */
+		uint32_t new_table_idx = lua_objlen(L, -1) + 1;
+		lua_newtable(L);
+		lua_pushvalue(L, -1); /* Popped by lua_rawseti(). */
+		lua_rawseti(L, -3, new_table_idx);
+		/* The new table is on top of the stack. */
+	}
+
+	uint32_t cur = 1;
+
+	/* Fetch, merge and save tuples to the table. */
+	struct tuple *tuple;
+	while ((tuple = merger_next(L, merger, NULL)) != NULL) {
+		luaT_pushtuple(L, tuple);
+		lua_rawseti(L, -2, cur);
+		box_tuple_unref(tuple);
+		++cur;
+	}
+
+	lua_pop(L, 1);
+
+	if (merger->output_chain)
+		lua_pop(L, 1);
 }
 
 /*
@@ -543,7 +590,7 @@ lbox_merger_start(struct lua_State *L)
 	merger->order = 1;
 	merger->input_chain = false;
 	merger->input_chain_first = false;
-	merger->obuf = NULL;
+	merger->result_type = RESULT_TYPE_NONE;
 	merger->output_chain = false;
 	merger->output_chain_first = false;
 	merger->output_chain_len = 0;
@@ -585,10 +632,26 @@ lbox_merger_start(struct lua_State *L)
 		lua_pushstring(L, "buffer");
 		lua_gettable(L, 3);
 		if (!lua_isnil(L, -1)) {
-			if ((merger->obuf = check_ibuf(L, -1)) == NULL)
+			if ((merger->result.obuf = check_ibuf(L, -1)) == NULL)
 				return start_usage_error(L, "buffer");
+			merger->result_type = RESULT_TYPE_BUFFER;
 		}
 		lua_pop(L, 1);
+
+		/* Parse table_output. */
+		lua_pushstring(L, "table_output");
+		lua_gettable(L, 3);
+		if (!lua_isnil(L, -1)) {
+			if (merger->result_type == RESULT_TYPE_BUFFER)
+				return luaL_error(
+					L, "\"buffer\" and \"table_output\" "
+					"options are mutually exclusive");
+			if (lua_istable(L, -1) != 1)
+				return start_usage_error(L, "table_output");
+			merger->result_type = RESULT_TYPE_TABLE;
+			merger->result.tbl_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+			/* table_output was popped by luaL_ref(). */
+		}
 
 		/* Parse output_chain_first to output_chain and
 		 * output_chain_first. */
@@ -621,7 +684,8 @@ lbox_merger_start(struct lua_State *L)
 		/* Verify output_chain_len is provided when we
 		 * going to use it for output buffer header
 		 * encoding. */
-		if (merger->obuf != NULL && merger->output_chain_first &&
+		if (merger->result_type == RESULT_TYPE_BUFFER &&
+		    merger->output_chain_first &&
 		    merger->output_chain_len == 0)
 			return luaL_error(
 				L, "\"output_chain_len\" is mandatory when "
@@ -789,8 +853,12 @@ lbox_merger_start(struct lua_State *L)
 	}
 	lua_pop(L, merger->count + 1);
 
-	if (merger->obuf != NULL)
+	if (merger->result_type == RESULT_TYPE_BUFFER) {
 		encode_result_buffer(L, merger);
+	} else if (merger->result_type == RESULT_TYPE_TABLE) {
+		encode_result_table(L, merger);
+		luaL_unref(L, LUA_REGISTRYINDEX, merger->result.tbl_ref);
+	}
 
 	return 0;
 }
