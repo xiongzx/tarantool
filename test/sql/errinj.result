@@ -280,3 +280,36 @@ errinj.set("ERRINJ_WAL_IO", false)
 box.sql.execute("DROP TABLE t3;")
 ---
 ...
+-- gh-3780: Segmentation fault with two users changing the same
+-- SQL table
+box.sql.execute('create table test (id int primary key)')
+---
+...
+errinj.set("ERRINJ_WAL_DELAY", true)
+---
+- ok
+...
+function execute_yield_drop_table() box.sql.execute("drop table test") end
+---
+...
+f1 = fiber.create(execute_yield_drop_table)
+---
+...
+while f1:status() ~= 'suspended' do fiber.sleep(0) end
+---
+...
+box.sql.execute("insert into test values (1)")
+---
+- error: 'No index #0 is defined in space ''TEST'''
+...
+errinj.set("ERRINJ_WAL_DELAY", false)
+---
+- ok
+...
+while f1:status() ~= 'dead' do fiber.sleep(0) end
+---
+...
+box.sql.execute("drop table test")
+---
+- error: 'no such table: TEST'
+...

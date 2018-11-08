@@ -983,18 +983,20 @@ vdbe_emit_constraint_checks(struct Parse *parse_context, struct Table *tab,
 	 * strict typing.
 	 */
 	struct index *pk = space_index(tab->space, 0);
-	uint32_t part_count = pk->def->key_def->part_count;
-	if (part_count == 1) {
-		uint32_t fieldno = pk->def->key_def->parts[0].fieldno;
-		int reg_pk = new_tuple_reg + fieldno;
-		if (def->fields[fieldno].affinity == AFFINITY_INTEGER) {
-			int skip_if_null = sqlite3VdbeMakeLabel(v);
-			if (autoinc_fieldno != UINT32_MAX) {
-				sqlite3VdbeAddOp2(v, OP_IsNull, reg_pk,
-						  skip_if_null);
+	if (pk != NULL) {
+		uint32_t part_count = pk->def->key_def->part_count;
+		if (part_count == 1) {
+			uint32_t fieldno = pk->def->key_def->parts[0].fieldno;
+			int reg_pk = new_tuple_reg + fieldno;
+			if (def->fields[fieldno].affinity == AFFINITY_INTEGER) {
+				int skip_if_null = sqlite3VdbeMakeLabel(v);
+				if (autoinc_fieldno != UINT32_MAX) {
+					sqlite3VdbeAddOp2(v, OP_IsNull, reg_pk,
+							  skip_if_null);
+				}
+				sqlite3VdbeAddOp2(v, OP_MustBeInt, reg_pk, 0);
+				sqlite3VdbeResolveLabel(v, skip_if_null);
 			}
-			sqlite3VdbeAddOp2(v, OP_MustBeInt, reg_pk, 0);
-			sqlite3VdbeResolveLabel(v, skip_if_null);
 		}
 	}
 	/*

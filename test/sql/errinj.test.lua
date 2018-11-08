@@ -97,3 +97,15 @@ box.sql.execute("ALTER TABLE t3 DROP CONSTRAINT fk1;")
 box.sql.execute("INSERT INTO t3 VALUES(1, 1, 3);")
 errinj.set("ERRINJ_WAL_IO", false)
 box.sql.execute("DROP TABLE t3;")
+
+-- gh-3780: Segmentation fault with two users changing the same
+-- SQL table
+box.sql.execute('create table test (id int primary key)')
+errinj.set("ERRINJ_WAL_DELAY", true)
+function execute_yield_drop_table() box.sql.execute("drop table test") end
+f1 = fiber.create(execute_yield_drop_table)
+while f1:status() ~= 'suspended' do fiber.sleep(0) end
+box.sql.execute("insert into test values (1)")
+errinj.set("ERRINJ_WAL_DELAY", false)
+while f1:status() ~= 'dead' do fiber.sleep(0) end
+box.sql.execute("drop table test")
