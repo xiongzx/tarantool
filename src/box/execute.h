@@ -34,6 +34,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "port.h"
+#include "mpstream.h"
 
 #if defined(__cplusplus)
 extern "C" {
@@ -111,7 +112,8 @@ struct sql_response {
  * @retval -1 Memory error.
  */
 int
-sql_response_dump(struct sql_response *response, int *keys, struct obuf *out);
+sql_response_dump(struct sql_response *response, int *keys,
+		  struct mpstream *stream);
 
 /**
  * Parse MessagePack array of SQL parameters and store a result
