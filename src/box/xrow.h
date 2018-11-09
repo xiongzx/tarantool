@@ -423,20 +423,6 @@ iproto_reply_select(struct obuf *buf, struct obuf_svp *svp, uint64_t sync,
 		    uint32_t schema_version, uint32_t count);
 
 /**
- * Write header of the key to a preallocated buffer by svp.
- * @param buf Buffer to write to.
- * @param size Size of the key (length of the array or of the
- *        string).
- * @param key Body key.
- */
-int
-iproto_reply_array_key(struct obuf *buf, uint32_t size, uint8_t key);
-
-/** @copydoc iproto_reply_array_key. */
-int
-iproto_reply_map_key(struct obuf *buf, uint32_t size, uint8_t key);
-
-/**
  * Encode iproto header with IPROTO_OK response code.
  * @param out Encode to.
  * @param sync Request sync.

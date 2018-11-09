@@ -194,23 +194,7 @@ sql_bind_decode(struct sql_bind *bind, int i, const char **packet)
 	return 0;
 }
 
-/**
- * Parse MessagePack array of SQL parameters and store a result
- * into the @request->bind, bind_count.
- * @param request Request to save decoded parameters.
- * @param data MessagePack array of parameters. Each parameter
- *        either must have scalar type, or must be a map with the
- *        following format: {name: value}. Name - string name of
- *        the named parameter, value - scalar value of the
- *        parameter. Named and positioned parameters can be mixed.
- *        For more details
- *        @sa https://www.sqlite.org/lang_expr.html#varparam.
- * @param region Allocator.
- *
- * @retval  0 Success.
- * @retval -1 Client or memory error.
- */
-static inline int
+int
 sql_bind_list_decode(struct sql_request *request, const char *data,
 		     struct region *region)
 {
@@ -243,57 +227,6 @@ sql_bind_list_decode(struct sql_request *request, const char *data,
 	}
 	request->bind_count = bind_count;
 	request->bind = bind;
-	return 0;
-}
-
-int
-xrow_decode_sql(const struct xrow_header *row, struct sql_request *request,
-		struct region *region)
-{
-	if (row->bodycnt == 0) {
-		diag_set(ClientError, ER_INVALID_MSGPACK, "missing request body");
-		return 1;
-	}
-	assert(row->bodycnt == 1);
-	const char *data = (const char *) row->body[0].iov_base;
-	const char *end = data + row->body[0].iov_len;
-	assert((end - data) > 0);
-
-	if (mp_typeof(*data) != MP_MAP || mp_check_map(data, end) > 0) {
-error:
-		diag_set(ClientError, ER_INVALID_MSGPACK, "packet body");
-		return -1;
-	}
-
-	uint32_t map_size = mp_decode_map(&data);
-	request->sql_text = NULL;
-	request->bind = NULL;
-	request->bind_count = 0;
-	request->sync = row->sync;
-	for (uint32_t i = 0; i < map_size; ++i) {
-		uint8_t key = *data;
-		if (key != IPROTO_SQL_BIND && key != IPROTO_SQL_TEXT) {
-			mp_check(&data, end);   /* skip the key */
-			mp_check(&data, end);   /* skip the value */
-			continue;
-		}
-		const char *value = ++data;     /* skip the key */
-		if (mp_check(&data, end) != 0)  /* check the value */
-			goto error;
-		if (key == IPROTO_SQL_BIND) {
-			if (sql_bind_list_decode(request, value, region) != 0)
-				return -1;
-		} else {
-			request->sql_text = value;
-		}
-	}
-	if (request->sql_text == NULL) {
-		diag_set(ClientError, ER_MISSING_REQUEST_FIELD,
-			 iproto_key_name(IPROTO_SQL_TEXT));
-		return -1;
-	}
-	if (data != end)
-		goto error;
 	return 0;
 }
 
@@ -525,9 +458,15 @@ sql_get_description(struct sqlite3_stmt *stmt, struct obuf *out,
 		    int column_count)
 {
 	assert(column_count > 0);
-	if (iproto_reply_array_key(out, column_count, IPROTO_METADATA) != 0)
+	char *pos = (char *) obuf_alloc(out, IPROTO_KEY_HEADER_LEN);
+	if (pos == NULL) {
+		diag_set(OutOfMemory, IPROTO_KEY_HEADER_LEN, "obuf_alloc",
+			 "pos");
 		return -1;
-
+	}
+	pos = mp_store_u8(pos, IPROTO_METADATA);
+	pos = mp_store_u8(pos, 0xdd);
+	pos = mp_store_u32(pos, column_count);
 	for (int i = 0; i < column_count; ++i) {
 		size_t size = mp_sizeof_map(2) +
 			      mp_sizeof_uint(IPROTO_FIELD_NAME) +
@@ -586,8 +525,7 @@ sql_prepare_and_execute(const struct sql_request *request,
 			struct sql_response *response, struct region *region)
 {
 	const char *sql = request->sql_text;
-	uint32_t len;
-	sql = mp_decode_str(&sql, &len);
+	uint32_t len = request->sql_text_len;
 	struct sqlite3_stmt *stmt;
 	sqlite3 *db = sql_get();
 	if (db == NULL) {
@@ -611,27 +549,28 @@ sql_prepare_and_execute(const struct sql_request *request,
 }
 
 int
-sql_response_dump(struct sql_response *response, struct obuf *out)
+sql_response_dump(struct sql_response *response, int *keys, struct obuf *out)
 {
-	struct obuf_svp header_svp;
-	/* Prepare memory for the iproto header. */
-	if (iproto_prepare_header(out, &header_svp, IPROTO_SQL_HEADER_LEN) != 0)
-		return -1;
 	sqlite3 *db = sql_get();
 	struct sqlite3_stmt *stmt = (struct sqlite3_stmt *) response->prep_stmt;
 	struct port_tuple *port_tuple = (struct port_tuple *) &response->port;
-	int keys, rc = 0, column_count = sqlite3_column_count(stmt);
+	int rc = 0, column_count = sqlite3_column_count(stmt);
 	if (column_count > 0) {
 		if (sql_get_description(stmt, out, column_count) != 0) {
 err:
-			obuf_rollback_to_svp(out, &header_svp);
 			rc = -1;
 			goto finish;
 		}
-		keys = 2;
-		if (iproto_reply_array_key(out, port_tuple->size,
-					   IPROTO_DATA) != 0)
+		*keys = 2;
+		char *pos = (char *) obuf_alloc(out, IPROTO_KEY_HEADER_LEN);
+		if (pos == NULL) {
+			diag_set(OutOfMemory, IPROTO_KEY_HEADER_LEN,
+				 "obuf_alloc", "pos");
 			goto err;
+		}
+		pos = mp_store_u8(pos, IPROTO_DATA);
+		pos = mp_store_u8(pos, 0xdd);
+		pos = mp_store_u32(pos, port_tuple->size);
 		/*
 		 * Just like SELECT, SQL uses output format compatible
 		 * with Tarantool 1.6
@@ -641,13 +580,20 @@ err:
 			goto err;
 		}
 	} else {
-		keys = 1;
+		*keys = 1;
 		assert(port_tuple->size == 0);
 		struct stailq *autoinc_id_list =
 			vdbe_autoinc_id_list((struct Vdbe *)stmt);
 		uint32_t map_size = stailq_empty(autoinc_id_list) ? 1 : 2;
-		if (iproto_reply_map_key(out, map_size, IPROTO_SQL_INFO) != 0)
+		char *pos = (char *) obuf_alloc(out, IPROTO_KEY_HEADER_LEN);
+		if (pos == NULL) {
+			diag_set(OutOfMemory, IPROTO_KEY_HEADER_LEN,
+				 "obuf_alloc", "pos");
 			goto err;
+		}
+		pos = mp_store_u8(pos, IPROTO_SQL_INFO);
+		pos = mp_store_u8(pos, 0xdf);
+		pos = mp_store_u32(pos, map_size);
 		uint64_t id_count = 0;
 		int changes = sqlite3_changes(db);
 		int size = mp_sizeof_uint(SQL_INFO_ROW_COUNT) +
@@ -681,8 +627,6 @@ err:
 			}
 		}
 	}
-	iproto_reply_sql(out, &header_svp, response->sync, schema_version,
-			 keys);
 finish:
 	port_destroy(&response->port);
 	sqlite3_finalize(stmt);

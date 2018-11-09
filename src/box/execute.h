@@ -58,6 +58,8 @@ struct sql_request {
 	uint64_t sync;
 	/** SQL statement text. */
 	const char *sql_text;
+	/** Length of the SQL statement text. */
+	uint32_t sql_text_len;
 	/** Array of parameters. */
 	struct sql_bind *bind;
 	/** Length of the @bind. */
@@ -102,26 +104,34 @@ struct sql_response {
  * | }                                            |
  * +----------------------------------------------+
  * @param response EXECUTE response.
+ * @param[out] number of keys in map.
  * @param out Output buffer.
  *
  * @retval  0 Success.
  * @retval -1 Memory error.
  */
 int
-sql_response_dump(struct sql_response *response, struct obuf *out);
+sql_response_dump(struct sql_response *response, int *keys, struct obuf *out);
 
 /**
- * Parse the EXECUTE request.
- * @param row Encoded data.
- * @param[out] request Request to decode to.
+ * Parse MessagePack array of SQL parameters and store a result
+ * into the @request->bind, bind_count.
+ * @param request Request to save decoded parameters.
+ * @param data MessagePack array of parameters. Each parameter
+ *        either must have scalar type, or must be a map with the
+ *        following format: {name: value}. Name - string name of
+ *        the named parameter, value - scalar value of the
+ *        parameter. Named and positioned parameters can be mixed.
+ *        For more details
+ *        @sa https://www.sqlite.org/lang_expr.html#varparam.
  * @param region Allocator.
  *
- * @retval  0 Sucess.
- * @retval -1 Format or memory error.
+ * @retval  0 Success.
+ * @retval -1 Client or memory error.
  */
 int
-xrow_decode_sql(const struct xrow_header *row, struct sql_request *request,
-		struct region *region);
+sql_bind_list_decode(struct sql_request *request, const char *data,
+		     struct region *region);
 
 /**
  * Prepare and execute an SQL statement.
@@ -139,16 +149,6 @@ sql_prepare_and_execute(const struct sql_request *request,
 
 #if defined(__cplusplus)
 } /* extern "C" { */
-#include "diag.h"
-
-/** @copydoc sql_request_decode. Throws on error. */
-static inline void
-xrow_decode_sql_xc(const struct xrow_header *row, struct sql_request *request,
-		   struct region *region)
-{
-	if (xrow_decode_sql(row, request, region) != 0)
-		diag_raise();
-}
 #endif
 
 #endif /* TARANTOOL_SQL_EXECUTE_H_INCLUDED */

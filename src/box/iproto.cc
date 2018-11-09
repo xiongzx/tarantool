@@ -1118,6 +1118,67 @@ static const struct cmsg_hop error_route[] = {
 	{ net_send_error, NULL },
 };
 
+/**
+ * Parse the EXECUTE request.
+ * @param row Encoded data.
+ * @param[out] request Request to decode to.
+ * @param region Allocator.
+ *
+ * @retval  0 Sucess.
+ * @retval -1 Format or memory error.
+ */
+static inline int
+xrow_decode_sql(const struct xrow_header *row, struct sql_request *request,
+		struct region *region)
+{
+	if (row->bodycnt == 0) {
+		diag_set(ClientError, ER_INVALID_MSGPACK, "missing request body");
+		return 1;
+	}
+	assert(row->bodycnt == 1);
+	const char *data = (const char *) row->body[0].iov_base;
+	const char *end = data + row->body[0].iov_len;
+	assert((end - data) > 0);
+
+	if (mp_typeof(*data) != MP_MAP || mp_check_map(data, end) > 0) {
+error:
+		diag_set(ClientError, ER_INVALID_MSGPACK, "packet body");
+		return -1;
+	}
+
+	uint32_t map_size = mp_decode_map(&data);
+	request->sql_text = NULL;
+	request->bind = NULL;
+	request->bind_count = 0;
+	request->sync = row->sync;
+	for (uint32_t i = 0; i < map_size; ++i) {
+		uint8_t key = *data;
+		if (key != IPROTO_SQL_BIND && key != IPROTO_SQL_TEXT) {
+			mp_check(&data, end);   /* skip the key */
+			mp_check(&data, end);   /* skip the value */
+			continue;
+		}
+		const char *value = ++data;     /* skip the key */
+		if (mp_check(&data, end) != 0)  /* check the value */
+			goto error;
+		if (key == IPROTO_SQL_BIND) {
+			if (sql_bind_list_decode(request, value, region) != 0)
+				return -1;
+		} else {
+			request->sql_text =
+				mp_decode_str(&value, &request->sql_text_len);
+		}
+	}
+	if (request->sql_text == NULL) {
+		diag_set(ClientError, ER_MISSING_REQUEST_FIELD,
+			 iproto_key_name(IPROTO_SQL_TEXT));
+		return -1;
+	}
+	if (data != end)
+		goto error;
+	return 0;
+}
+
 static void
 iproto_msg_decode(struct iproto_msg *msg, const char **pos, const char *reqend,
 		  bool *stop_input)
@@ -1593,8 +1654,16 @@ tx_process_sql(struct cmsg *m)
 	 * become out of date during yield.
 	 */
 	out = msg->connection->tx.p_obuf;
-	if (sql_response_dump(&response, out) != 0)
+	int keys;
+	struct obuf_svp header_svp;
+	/* Prepare memory for the iproto header. */
+	if (iproto_prepare_header(out, &header_svp, IPROTO_SQL_HEADER_LEN) != 0)
 		goto error;
+	if (sql_response_dump(&response, &keys, out) != 0) {
+		obuf_rollback_to_svp(out, &header_svp);
+		goto error;
+	}
+	iproto_reply_sql(out, &header_svp, response.sync, schema_version, keys);
 	iproto_wpos_create(&msg->wpos, out);
 	return;
 error:
