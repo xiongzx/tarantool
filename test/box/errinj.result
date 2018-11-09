@@ -54,8 +54,6 @@ errinj.info()
     state: false
   ERRINJ_RELAY_REPORT_INTERVAL:
     state: 0
-  ERRINJ_ROWID_OVERFLOW:
-    state: false
   ERRINJ_VY_READ_PAGE_TIMEOUT:
     state: 0
   ERRINJ_XLOG_META:

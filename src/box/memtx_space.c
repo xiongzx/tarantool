@@ -606,12 +606,6 @@ memtx_space_ephemeral_rowid_next(struct space *space, uint64_t *rowid)
 {
 	assert(rowid != NULL);
 	struct memtx_space *memtx_space = (struct memtx_space *)space;
-	ERROR_INJECT(ERRINJ_ROWID_OVERFLOW,
-		     { memtx_space->rowid = UINT64_MAX; });
-	if (unlikely(memtx_space->rowid == UINT64_MAX)) {
-		diag_set(ClientError, ER_ROWID_OVERFLOW);
-		return -1;
-	}
 	*rowid = memtx_space->rowid++;
 	return 0;
 }
