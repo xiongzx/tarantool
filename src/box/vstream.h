@@ -70,6 +70,8 @@ struct vstream_vtab {
 	void (*encode_reply_commit)(struct vstream *stream);
 	void (*encode_map_commit)(struct vstream *stream);
 	void (*encode_map_element_commit)(struct vstream *stream);
+	void (*encode_array_element_commit)(struct vstream *stream,
+					    uint32_t id);
 };
 
 struct vstream {
@@ -80,6 +82,8 @@ struct vstream {
 		struct mpstream *mpstream;
 		struct lua_State *L;
 	};
+	/** TODO: Write comment. */
+	bool is_flatten;
 };
 
 void
@@ -158,8 +162,15 @@ vstream_encode_port(struct vstream *stream, struct port *port)
 }
 
 static inline int
-vstream_encode_reply(struct vstream *stream, uint32_t size,
-		     enum vstream_constants constant)
+vstream_encode_reply_array(struct vstream *stream, uint32_t size,
+			   enum vstream_constants constant)
+{
+	return stream->vtab->encode_reply(stream, size, constant);
+}
+
+static inline int
+vstream_encode_reply_map(struct vstream *stream, uint32_t size,
+			 enum vstream_constants constant)
 {
 	return stream->vtab->encode_reply(stream, size, constant);
 }
@@ -186,6 +197,12 @@ static inline void
 vstream_encode_map_element_commit(struct vstream *stream)
 {
 	return stream->vtab->encode_map_element_commit(stream);
+}
+
+static inline void
+vstream_encode_array_element_commit(struct vstream *stream, uint32_t id)
+{
+	return stream->vtab->encode_array_element_commit(stream, id);
 }
 
 #if defined(__cplusplus)

@@ -456,7 +456,7 @@ sql_get_description(struct sqlite3_stmt *stmt, struct vstream *stream,
 		    int column_count)
 {
 	assert(column_count > 0);
-	vstream_encode_reply(stream, column_count, VSTREAM_SQL_METADATA);
+	vstream_encode_reply_array(stream, column_count, VSTREAM_SQL_METADATA);
 	for (int i = 0; i < column_count; ++i) {
 		const char *name = sqlite3_column_name(stmt, i);
 		const char *type = sqlite3_column_datatype(stmt, i);
@@ -480,6 +480,7 @@ sql_get_description(struct sqlite3_stmt *stmt, struct vstream *stream,
 		vstream_encode_map_element_commit(stream);
 
 		vstream_encode_map_commit(stream);
+		vstream_encode_array_element_commit(stream, i);
 	}
 	vstream_encode_reply_commit(stream);
 	return 0;
@@ -553,8 +554,8 @@ err:
 			goto finish;
 		}
 		*keys = 2;
-		vstream_encode_reply(stream, port_tuple->size,
-				     VSTREAM_SQL_DATA);
+		vstream_encode_reply_array(stream, port_tuple->size,
+					   VSTREAM_SQL_DATA);
 		if (vstream_encode_port(stream, &response->port) < 0)
 			goto err;
 		vstream_encode_reply_commit(stream);
@@ -570,7 +571,7 @@ err:
 			stailq_foreach_entry(id_entry, autoinc_id_list, link)
 				id_count++;
 		}
-		vstream_encode_reply(stream, map_size, VSTREAM_SQL_INFO);
+		vstream_encode_reply_map(stream, map_size, VSTREAM_SQL_INFO);
 		vstream_encode_uint(stream, SQL_INFO_ROW_COUNT);
 		vstream_encode_uint(stream, sqlite3_changes(db));
 		vstream_encode_map_element_commit(stream);

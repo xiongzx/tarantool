@@ -187,6 +187,14 @@ mp_vstream_encode_map_element_commit(struct vstream *stream)
 	(void)stream;
 }
 
+void
+mp_vstream_encode_array_element_commit(struct vstream *stream, uint32_t id)
+{
+	(void)stream;
+	(void)id;
+}
+
+/* TODO: reduce name length of methods. */
 const struct vstream_vtab mp_vstream_vtab = {
 	/** encode_array = */ mp_vstream_encode_array,
 	/** encode_map = */ mp_vstream_encode_map,
@@ -204,6 +212,7 @@ const struct vstream_vtab mp_vstream_vtab = {
 	/** encode_reply_commit = */ mp_vstream_encode_reply_commit,
 	/** encode_map_commit = */ mp_vstream_encode_map_commit,
 	/** encode_map_element_commit = */ mp_vstream_encode_map_element_commit,
+	/** encode_array_element_commit = */ mp_vstream_encode_array_element_commit,
 };
 
 void
@@ -211,4 +220,143 @@ mp_vstream_init(struct vstream *vstream, struct mpstream *mpstream)
 {
 	vstream->vtab = &mp_vstream_vtab;
 	vstream->mpstream = mpstream;
+	vstream->is_flatten = false;
+}
+
+void
+lua_vstream_encode_array(struct vstream *stream, uint32_t size)
+{
+	lua_newtable(stream->L);
+}
+
+void
+lua_vstream_encode_map(struct vstream *stream, uint32_t size)
+{
+	lua_newtable(stream->L);
+}
+
+void
+lua_vstream_encode_uint(struct vstream *stream, uint64_t num)
+{
+	luaL_pushuint64(stream->L, num);
+}
+
+void
+lua_vstream_encode_int(struct vstream *stream, int64_t num)
+{
+	luaL_pushint64(stream->L, num);
+}
+
+void
+lua_vstream_encode_float(struct vstream *stream, float num)
+{
+	lua_pushnumber(stream->L, num);
+}
+
+void
+lua_vstream_encode_double(struct vstream *stream, double num)
+{
+	lua_pushnumber(stream->L, num);
+}
+
+void
+lua_vstream_encode_strn(struct vstream *stream, const char *str, uint32_t len)
+{
+	lua_pushlstring(stream->L, str, len);
+}
+
+void
+lua_vstream_encode_nil(struct vstream *stream)
+{
+	lua_pushnil(stream->L);
+}
+
+void
+lua_vstream_encode_bool(struct vstream *stream, bool val)
+{
+	lua_pushboolean(stream->L, val);
+}
+
+int
+lua_vstream_encode_port(struct vstream *stream, struct port *port)
+{
+	struct port_tuple *port = port_tuple(port);
+	struct port_tuple_entry *pe;
+	for (pe = port->first; pe != NULL; pe = pe->next)
+		luaT_pushtuple(stream->L, pe->tuple);
+	return 0;
+}
+
+int
+lua_vstream_encode_reply(struct vstream *stream, uint32_t size,
+			enum vstream_constants constant)
+{
+	switch(constant) {
+		case VSTREAM_SQL_DATA:
+			lua_newtable(stream->L);
+			lua_setfield(L, -2, "data");
+			lua_getfield(L, -1, "data");
+			break;
+		case VSTREAM_SQL_METADATA:
+			lua_newtable(stream->L);
+			lua_setfield(L, -2, "metadata");
+			lua_getfield(L, -1, "metadata");
+			break;
+		case VSTREAM_SQL_INFO:
+			break;
+		default:
+			// TODO: Error;
+			assert(0);
+	}
+	return 0;
+}
+
+uint64_t lua_vstream_encode_enum(struct vstream *stream,
+			        enum vstream_constants constant)
+{
+	/* TODO: Should it return some other constants here? */
+	return (uint64_t)constant;
+}
+
+void
+lua_vstream_encode_array_commit(struct vstream *stream)
+{
+	(void)stream;
+}
+
+void
+lua_vstream_encode_reply_commit(struct vstream *stream)
+{
+	if(!stream->is_flatten)
+		lua_pop(stream->L, 1);
+}
+
+void
+lua_vstream_encode_map_commit(struct vstream *stream)
+{
+	(void)stream;
+}
+
+void
+lua_vstream_encode_map_element_commit(struct vstream *stream)
+{
+	uint64_t constant = luaL_checkuint64(stream->L, -2);
+	switch(constant) {
+		case VSTREAM_SQL_FIELD_NAME:
+			lua_setfield(stream->L, -3, "name");
+			break;
+		case VSTREAM_SQL_FIELD_TYPE:
+			lua_setfield(stream->L, -3, "name");
+			break;
+		default:
+			// TODO: Error;
+			assert(0);
+	}
+	lua_pop(stream->L, 1);
+}
+
+void
+lua_vstream_encode_array_element_commit(struct vstream *stream, uint32_t id)
+{
+	lua_rawseti(stream->L, -2, id + 1);
 }
