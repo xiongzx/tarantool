@@ -61,6 +61,8 @@
 #include "rmean.h"
 #include "execute.h"
 #include "errinj.h"
+#include "vstream.h"
+#include "mpstream.h"
 
 enum {
 	IPROTO_SALT_SIZE = 32,
@@ -1666,14 +1668,21 @@ tx_process_sql(struct cmsg *m)
 	/* Prepare memory for the iproto header. */
 	if (iproto_prepare_header(out, &header_svp, IPROTO_SQL_HEADER_LEN) != 0)
 		goto error;
-	struct mpstream stream;
-	mpstream_init(&stream, out, obuf_reserve_cb, obuf_alloc_cb, check_error,
-		      &is_error);
-	if (sql_response_dump(&response, &keys, &stream) != 0) {
+	struct mpstream mpstream;
+	mpstream_init(&mpstream, out, obuf_reserve_cb, obuf_alloc_cb,
+		      check_error, &is_error);
+
+
+	struct vstream vstream;
+	mp_vstream_init(&vstream, &mpstream);
+
+	if (sql_response_dump(&response, &keys, &vstream) != 0) {
 		obuf_rollback_to_svp(out, &header_svp);
 		goto error;
 	}
-	mpstream_flush(&stream);
+
+
+	mpstream_flush(&mpstream);
 	iproto_reply_sql(out, &header_svp, response.sync, schema_version, keys);
 	iproto_wpos_create(&msg->wpos, out);
 	return;

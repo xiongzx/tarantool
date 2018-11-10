@@ -56,6 +56,7 @@ add_library(xlog STATIC xlog.c)
 target_link_libraries(xlog core box_error crc32 ${ZSTD_LIBRARIES})
 
 add_library(box STATIC
+    vstream.c
     iproto.cc
     error.cc
     xrow_io.cc

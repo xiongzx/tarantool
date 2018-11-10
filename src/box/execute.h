@@ -34,7 +34,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "port.h"
-#include "mpstream.h"
 
 #if defined(__cplusplus)
 extern "C" {
@@ -53,6 +52,7 @@ struct obuf;
 struct region;
 struct sql_bind;
 struct xrow_header;
+struct vstream;
 
 /** EXECUTE request. */
 struct sql_request {
@@ -113,7 +113,7 @@ struct sql_response {
  */
 int
 sql_response_dump(struct sql_response *response, int *keys,
-		  struct mpstream *stream);
+		  struct vstream *stream);
 
 /**
  * Parse MessagePack array of SQL parameters and store a result

@@ -30,18 +30,17 @@
  */
 #include "execute.h"
 
-#include "iproto_constants.h"
 #include "sql/sqliteInt.h"
 #include "sql/sqliteLimit.h"
 #include "errcode.h"
 #include "small/region.h"
 #include "diag.h"
 #include "sql.h"
-#include "xrow.h"
 #include "schema.h"
 #include "port.h"
 #include "tuple.h"
 #include "sql/vdbe.h"
+#include "vstream.h"
 
 const char *sql_type_strs[] = {
 	NULL,
@@ -453,20 +452,11 @@ sql_bind(const struct sql_request *request, struct sqlite3_stmt *stmt)
  * @retval -1 Client or memory error.
  */
 static inline int
-sql_get_description(struct sqlite3_stmt *stmt, struct mpstream *stream,
+sql_get_description(struct sqlite3_stmt *stmt, struct vstream *stream,
 		    int column_count)
 {
 	assert(column_count > 0);
-	char *pos = mpstream_reserve(stream, IPROTO_KEY_HEADER_LEN);
-	if (pos == NULL) {
-		diag_set(OutOfMemory, IPROTO_KEY_HEADER_LEN, "mpstream_reserve",
-			 "pos");
-		return -1;
-	}
-	pos = mp_store_u8(pos, IPROTO_METADATA);
-	pos = mp_store_u8(pos, 0xdd);
-	pos = mp_store_u32(pos, column_count);
-	mpstream_advance(stream, IPROTO_KEY_HEADER_LEN);
+	vstream_encode_reply(stream, column_count, VSTREAM_SQL_METADATA);
 	for (int i = 0; i < column_count; ++i) {
 		const char *name = sqlite3_column_name(stmt, i);
 		const char *type = sqlite3_column_datatype(stmt, i);
@@ -476,12 +466,22 @@ sql_get_description(struct sqlite3_stmt *stmt, struct mpstream *stream,
 		 * column_name simply returns them.
 		 */
 		assert(name != NULL);
-		mpstream_encode_map(stream, 2);
-		mpstream_encode_uint(stream, IPROTO_FIELD_NAME);
-		mpstream_encode_str(stream, name);
-		mpstream_encode_uint(stream, IPROTO_FIELD_TYPE);
-		mpstream_encode_str(stream, type);
+		uint64_t key;
+		vstream_encode_map(stream, 2);
+
+		key = vstream_encode_enum(stream, VSTREAM_SQL_FIELD_NAME);
+		vstream_encode_uint(stream, key);
+		vstream_encode_str(stream, name);
+		vstream_encode_map_element_commit(stream);
+
+		key = vstream_encode_enum(stream, VSTREAM_SQL_FIELD_TYPE);
+		vstream_encode_uint(stream, key);
+		vstream_encode_str(stream, type);
+		vstream_encode_map_element_commit(stream);
+
+		vstream_encode_map_commit(stream);
 	}
+	vstream_encode_reply_commit(stream);
 	return 0;
 }
 
@@ -540,7 +540,7 @@ sql_prepare_and_execute(const struct sql_request *request,
 
 int
 sql_response_dump(struct sql_response *response, int *keys,
-		  struct mpstream *stream)
+		  struct vstream *stream)
 {
 	sqlite3 *db = sql_get();
 	struct sqlite3_stmt *stmt = (struct sqlite3_stmt *) response->prep_stmt;
@@ -553,27 +553,11 @@ err:
 			goto finish;
 		}
 		*keys = 2;
-		char *pos = mpstream_reserve(stream, IPROTO_KEY_HEADER_LEN);
-		if (pos == NULL) {
-			diag_set(OutOfMemory, IPROTO_KEY_HEADER_LEN,
-				 "mpstream_reserve", "pos");
+		vstream_encode_reply(stream, port_tuple->size,
+				     VSTREAM_SQL_DATA);
+		if (vstream_encode_port(stream, &response->port) < 0)
 			goto err;
-		}
-		pos = mp_store_u8(pos, IPROTO_DATA);
-		pos = mp_store_u8(pos, 0xdd);
-		pos = mp_store_u32(pos, port_tuple->size);
-		mpstream_advance(stream, IPROTO_KEY_HEADER_LEN);
-
-		mpstream_flush(stream);
-		/*
-		 * Just like SELECT, SQL uses output format compatible
-		 * with Tarantool 1.6
-		 */
-		if (port_dump_msgpack_16(&response->port, stream->ctx) < 0) {
-			/* Failed port dump destroyes the port. */
-			goto err;
-		}
-		mpstream_reset(stream);
+		vstream_encode_reply_commit(stream);
 	} else {
 		*keys = 1;
 		assert(port_tuple->size == 0);
@@ -586,31 +570,25 @@ err:
 			stailq_foreach_entry(id_entry, autoinc_id_list, link)
 				id_count++;
 		}
-		char *pos = mpstream_reserve(stream, IPROTO_KEY_HEADER_LEN);
-		if (pos == NULL) {
-			diag_set(OutOfMemory, IPROTO_KEY_HEADER_LEN,
-				 "mpstream_reserve", "pos");
-			goto err;
-		}
-		pos = mp_store_u8(pos, IPROTO_SQL_INFO);
-		pos = mp_store_u8(pos, 0xdf);
-		pos = mp_store_u32(pos, map_size);
-		mpstream_advance(stream, IPROTO_KEY_HEADER_LEN);
-		mpstream_encode_uint(stream, SQL_INFO_ROW_COUNT);
-		mpstream_encode_uint(stream, sqlite3_changes(db));
+		vstream_encode_reply(stream, map_size, VSTREAM_SQL_INFO);
+		vstream_encode_uint(stream, SQL_INFO_ROW_COUNT);
+		vstream_encode_uint(stream, sqlite3_changes(db));
+		vstream_encode_map_element_commit(stream);
 		if (!stailq_empty(autoinc_id_list)) {
-			mpstream_encode_uint(stream,
-					     SQL_INFO_AUTOINCREMENT_IDS);
-			mpstream_encode_array(stream, id_count);
+			vstream_encode_uint(stream, SQL_INFO_AUTOINCREMENT_IDS);
+			vstream_encode_array(stream, id_count);
 			struct autoinc_id_entry *id_entry;
 			stailq_foreach_entry(id_entry, autoinc_id_list, link) {
 				int64_t value = id_entry->id;
 				if (id_entry->id >= 0)
-					mpstream_encode_uint(stream, value);
+					vstream_encode_uint(stream, value);
 				else
-					mpstream_encode_int(stream, value);
+					vstream_encode_int(stream, value);
 			}
+			vstream_encode_array_commit(stream);
+			vstream_encode_map_element_commit(stream);
 		}
+		vstream_encode_reply_commit(stream);
 	}
 finish:
 	port_destroy(&response->port);
